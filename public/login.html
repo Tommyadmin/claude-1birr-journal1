@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<title>Sign in · Wakanda Trade Journal</title>
+<link rel="stylesheet" href="/assets/app.css?v=2.0.0">
+<script src="/assets/theme.js?v=2.0.0"></script>
+</head>
+<body class="auth">
+<button class="theme-btn" type="button"></button>
+<main class="auth-card">
+  <div class="eyebrow">Wakanda Trade</div>
+  <h1 id="title">Trading Journal</h1>
+  <p class="alert" id="err" hidden></p>
+  <p class="muted" id="loading">Loading…</p>
+
+  <form id="loginForm" class="stack" hidden>
+    <label>Password <input type="password" id="pw" required autocomplete="current-password"></label>
+    <button class="btn primary" type="submit">Sign in</button>
+  </form>
+
+  <form id="setupForm" class="stack" hidden>
+    <p class="muted" style="margin:0;font-size:14px">First-time setup. The setup code is the <b>APP_SECRET</b> value you added in Vercel. It proves you own this deployment.</p>
+    <label>Setup code (APP_SECRET) <input type="password" id="code" required autocomplete="off"></label>
+    <label>Choose a password <input type="password" id="pw1" required minlength="8" autocomplete="new-password"></label>
+    <label>Repeat password <input type="password" id="pw2" required minlength="8" autocomplete="new-password"></label>
+    <label>Starting account balance ($) <input type="number" id="bal" step="0.01" min="0" value="100" required></label>
+    <button class="btn primary" type="submit">Set up journal</button>
+  </form>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  function showErr(m) { var e = $('err'); e.textContent = m; e.hidden = !m; }
+  function call(action, body) {
+    return fetch('/api/auth?action=' + action, {
+      method: body ? 'POST' : 'GET', credentials: 'same-origin',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return { error: 'Server error (' + r.status + ')' }; }).then(function (j) {
+        if (!r.ok || j.error) throw new Error(j.error || 'Request failed');
+        return j;
+      });
+    });
+  }
+  function busy(form, on) { var b = form.querySelector('button[type=submit]'); b.disabled = on; }
+
+  call('status').then(function (s) {
+    $('loading').hidden = true;
+    if (s.logged_in) { location.replace('/'); return; }
+    if (!s.installed) { $('title').textContent = 'Set up your journal'; $('setupForm').hidden = false; $('code').focus(); }
+    else { $('loginForm').hidden = false; $('pw').focus(); }
+  }).catch(function (e) { $('loading').hidden = true; showErr(e.message); });
+
+  $('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault(); showErr(''); busy(this, true); var f = this;
+    call('login', { password: $('pw').value }).then(function () { location.replace('/'); })
+      .catch(function (err) { showErr(err.message); busy(f, false); $('pw').select(); });
+  });
+  $('setupForm').addEventListener('submit', function (e) {
+    e.preventDefault(); showErr(''); busy(this, true); var f = this;
+    call('setup', { code: $('code').value, password: $('pw1').value, password2: $('pw2').value, balance: $('bal').value })
+      .then(function () { location.replace('/'); })
+      .catch(function (err) { showErr(err.message); busy(f, false); });
+  });
+})();
+</script>
+</body>
+</html>

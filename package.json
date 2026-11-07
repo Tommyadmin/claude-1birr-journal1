@@ -1,0 +1,14 @@
+{
+  "name": "wakanda-trade-journal",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Wakanda Trade Journal on Vercel: Vercel Functions + Postgres (Neon) + Vercel Blob.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^0.27.0",
+    "pg": "^8.13.1"
+  }
+}
