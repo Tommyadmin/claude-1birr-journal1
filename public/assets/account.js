@@ -289,45 +289,96 @@
   var AD = {
     users: function (b, el) {
       T.adminApi('list').then(function (j) {
-        var all = j.users, q = (S.adq || '').toLowerCase();
-        var u = all.filter(function (x) { return !q || (x.name + ' ' + x.email + ' ' + x.phone).toLowerCase().indexOf(q) >= 0; });
+        var all = j.users;
+        var F = S.adf = S.adf || { q: '', status: '', plan: '', role: '' };
         var pend = all.filter(function (x) { return x.status === 'pending'; }).length;
+        var digits = function (v) { return String(v || '').replace(/\D/g, ''); };
+        var match = function (x) {
+          if (F.status && x.status !== F.status) return false;
+          if (F.role && x.role !== F.role) return false;
+          if (F.plan === 'trial' ? !(x.on_trial && x.plan_effective !== 'free') : F.plan && x.plan_effective !== F.plan) return false;
+          var q = F.q.trim().toLowerCase();
+          if (!q) return true;
+          if ((x.name + ' ' + x.email).toLowerCase().indexOf(q) >= 0) return true;
+          var qd = digits(q).replace(/^0+/, '');               // 0911… and +251911… both match
+          return qd.length >= 3 && digits(x.phone).indexOf(qd) >= 0;
+        };
         var pill = function (x) {
-          if (x.status === 'pending') return x.email_verified ? (x.phone ? '<span class="pill warn">Waiting for approval</span>' : '<span class="pill">No phone yet</span>') : '<span class="pill">Email not confirmed</span>';
+          if (x.status === 'pending') return x.email_verified ? (x.phone ? '<span class="pill warn">Waiting for approval</span>' : '<span class="pill">No phone yet</span>') : '<span class="pill">Email not verified</span>';
           return x.status === 'active' ? '<span class="pill ok">Active</span>' : '<span class="pill bad">Disabled</span>';
         };
+        var planPill = function (x) {
+          return '<span class="pill ' + (x.plan_effective === 'free' ? '' : x.on_trial ? 'warn' : 'acc') + '">' + esc(x.plan_name) + (x.on_trial && x.plan_effective !== 'free' ? ' trial' : '') + '</span>' +
+            (x.days_left != null ? ' <span class="small muted num">' + x.days_left + 'd</span>' : x.lifetime && x.role !== 'admin' ? ' <span class="small muted">no end</span>' : '');
+        };
         var btns = function (x) {
-          if (x.id === j.me) return '<span class="small muted">You</span>';
-          var s = '';
-          if (x.status === 'pending') s += '<button class="btn sm primary" data-a="approve" data-id="' + x.id + '">Approve</button>';
-          if (x.status === 'active') s += '<button class="btn sm" data-a="disable" data-id="' + x.id + '">Disable</button>';
-          if (x.status === 'disabled') s += '<button class="btn sm" data-a="enable" data-id="' + x.id + '">Enable</button>';
-          if (x.status === 'active') s += '<button class="btn sm" data-a="' + (x.role === 'admin' ? 'demote' : 'promote') + '" data-id="' + x.id + '">' + (x.role === 'admin' ? 'Remove admin' : 'Make admin') + '</button>';
-          s += '<button class="btn sm" data-a="plan" data-id="' + x.id + '">Plan</button><button class="btn sm" data-a="msg" data-id="' + x.id + '">Message</button><button class="btn sm" data-a="reset" data-id="' + x.id + '">Reset password</button>';
-          s += '<button class="btn sm danger" data-a="delete" data-id="' + x.id + '">Delete</button>';
-          return '<div class="row" style="gap:6px;flex-wrap:nowrap">' + s + '</div>';
+          var s2 = '<button class="btn sm" data-a="edit" data-id="' + x.id + '">Edit</button>';
+          if (x.id === j.me) return '<div class="row" style="gap:6px;flex-wrap:nowrap">' + s2 + '<span class="small muted">You</span></div>';
+          if (x.status === 'pending') s2 = '<button class="btn sm primary" data-a="approve" data-id="' + x.id + '">Approve</button>' + s2;
+          s2 += '<button class="btn sm" data-a="msg" data-id="' + x.id + '">Message</button><button class="btn sm" data-a="reset" data-id="' + x.id + '">Reset password</button>';
+          s2 += '<button class="btn sm danger" data-a="delete" data-id="' + x.id + '">Delete</button>';
+          return '<div class="row" style="gap:6px;flex-wrap:nowrap">' + s2 + '</div>';
+        };
+        var row = function (x) {
+          return '<tr><td><div class="row" style="flex-wrap:nowrap;gap:10px">' + (x.has_avatar ? '<img class="av" src="/api/media?type=avatar&uid=' + x.id + '" alt="">' : '<span class="av">' + esc(T.initials(x.name)) + '</span>') +
+            '<div><b>' + esc(x.name) + '</b>' + (x.role === 'admin' ? ' <span class="src">ADMIN</span>' : '') + (x.google ? ' <span class="small muted">Google</span>' : '') + '<br><span class="small muted">' + esc(x.email) + '</span></div></div></td>' +
+            '<td class="num">' + esc(x.phone || '—') + '</td><td>' + pill(x) + '</td><td>' + planPill(x) + '</td><td class="n num">' + x.trades + '</td>' +
+            '<td class="num small">' + esc(x.created_at) + '</td><td class="num small">' + esc(x.last_login || '—') + '</td><td>' + btns(x) + '</td></tr>';
         };
         b.innerHTML = '<div class="kpis">' + T.kpi('Accounts', all.length) + T.kpi('Active', all.filter(function (x) { return x.status === 'active'; }).length) +
-          T.kpi('Waiting for approval', pend, '', pend ? 'neg' : '') + T.kpi('Trades logged', all.reduce(function (s, x) { return s + x.trades; }, 0)) + '</div>' +
-          (j.email_enabled ? '' : '<p class="notice" style="margin:0">Email is not set up (RESEND_API_KEY). Confirmation, approval and reset emails are not being sent.</p>') +
-          (pend ? '<section class="panel" style="border-color:color-mix(in srgb,var(--warn) 45%,transparent)"><div class="panel-head"><div><h2>Waiting for approval</h2><p>' + pend + ' new account' + (pend > 1 ? 's' : '') + '. Approving sends them an email and lets them sign in.</p></div>' +
+          T.kpi('Waiting for approval', pend, '', pend ? 'neg' : '') + T.kpi('On a trial', all.filter(function (x) { return x.on_trial && x.plan_effective !== 'free'; }).length) +
+          T.kpi('Paying or gifted', all.filter(function (x) { return !x.on_trial && x.plan_effective !== 'free' && x.role !== 'admin'; }).length) + '</div>' +
+          (j.email_enabled ? '' : '<p class="notice" style="margin:0">Email is not set up (RESEND_API_KEY). Verification codes, approvals and reset emails are not being sent.</p>') +
+          (pend ? '<section class="panel" style="border-color:color-mix(in srgb,var(--warn) 45%,transparent)"><div class="panel-head"><div><h2>Waiting for approval</h2><p>' + pend + ' account' + (pend > 1 ? 's' : '') + '. Approving lets them sign in and starts their trial.</p></div>' +
             (pend > 1 ? '<button class="btn primary" type="button" id="apAll">Approve all ' + pend + '</button>' : '') + '</div><div class="tbl-wrap"><table class="tbl"><tbody>' +
             all.filter(function (x) { return x.status === 'pending'; }).map(function (x) {
               return '<tr><td><b>' + esc(x.name) + '</b><br><span class="small muted">' + esc(x.email) + '</span></td><td class="num">' + esc(x.phone || 'No phone yet') + '</td>' +
-                '<td>' + (x.email_verified ? '<span class="pill ok">Email confirmed</span>' : '<span class="pill warn">Email not confirmed</span>') + '</td><td class="num small">' + esc(x.created_at) + '</td>' +
+                '<td>' + (x.email_verified ? '<span class="pill ok">Email verified</span>' : '<span class="pill warn">Email not verified</span>') + '</td><td class="num small">' + esc(x.created_at) + '</td>' +
                 '<td><div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm primary" data-a="approve" data-id="' + x.id + '">Approve</button><button class="btn sm danger" data-a="delete" data-id="' + x.id + '">Reject</button></div></td></tr>';
             }).join('') + '</tbody></table></div></section>' : '') +
-          '<section class="panel"><div class="panel-head"><input id="adQ" placeholder="Search name, email or phone" value="' + esc(S.adq || '') + '" style="max-width:320px"></div>' +
-          '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>User</th><th>Phone</th><th>Status</th><th>Plan</th><th class="n">Trades</th><th>Joined</th><th>Last sign-in</th><th></th></tr></thead><tbody>' +
-          u.map(function (x) {
-            return '<tr><td><div class="row" style="flex-wrap:nowrap;gap:10px">' + (x.has_avatar ? '<img class="av" src="/api/media?type=avatar&uid=' + x.id + '" alt="">' : '<span class="av">' + esc(T.initials(x.name)) + '</span>') +
-              '<div><b>' + esc(x.name) + '</b>' + (x.role === 'admin' ? ' <span class="src">ADMIN</span>' : '') + (x.google ? ' <span class="small muted">Google</span>' : '') + '<br><span class="small muted">' + esc(x.email) + '</span></div></div></td>' +
-              '<td class="num">' + esc(x.phone || '—') + '</td><td>' + pill(x) + '</td>' +
-              '<td><span class="pill ' + (x.plan_effective === 'free' ? '' : x.on_trial ? 'warn' : 'acc') + '">' + esc(x.plan_name) + (x.on_trial && x.plan_effective !== 'free' ? ' trial' : '') + '</span>' +
-              (x.days_left != null ? ' <span class="small muted num">' + x.days_left + 'd</span>' : x.lifetime && x.role !== 'admin' ? ' <span class="small muted">no end</span>' : '') + '</td>' +
-              '<td class="n num">' + x.trades + '</td>' +
-              '<td class="num small">' + esc(x.created_at) + '</td><td class="num small">' + esc(x.last_login || '—') + '</td><td>' + btns(x) + '</td></tr>';
-          }).join('') + '</tbody></table></div><div id="admOut"></div></section>';
+          '<section class="panel"><div class="filters" style="grid-template-columns:minmax(0,2.2fr) repeat(3,minmax(0,1fr))">' +
+          '<label class="f">Search users<input id="adQ" type="search" placeholder="Name, email or phone (e.g. 0911… or +251911…)" value="' + esc(F.q) + '" autocomplete="off"></label>' +
+          '<label class="f">Status<select id="adS">' + T.opt([['active', 'Active'], ['pending', 'Waiting'], ['disabled', 'Disabled']], F.status, 'All') + '</select></label>' +
+          '<label class="f">Subscription<select id="adP">' + T.opt(j.plans.map(function (p) { return [p.id, p.name]; }).concat([['trial', 'On a trial']]), F.plan, 'All') + '</select></label>' +
+          '<label class="f">User type<select id="adR">' + T.opt([['user', 'User'], ['admin', 'Admin']], F.role, 'All') + '</select></label>' +
+          '</div><p class="small muted" id="adCount" style="margin:10px 0"></p>' +
+          '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>User</th><th>Phone</th><th>Status</th><th>Subscription</th><th class="n">Trades</th><th>Joined</th><th>Last sign-in</th><th></th></tr></thead><tbody id="adRows"></tbody></table></div><div id="admOut"></div></section>';
+
+        var bindBtns = function (root) {
+          $$('[data-a]', root).forEach(function (btn) {
+            btn.onclick = function () {
+              var id = +btn.dataset.id, a = btn.dataset.a, x = all.find(function (z) { return z.id === id; }), p;
+              if (a === 'edit') { T.editUserModal(x, j, function () { AD.users(b, el); }); return; }
+              if (a === 'approve' && !x.email_verified && !window.confirm(x.name + ' has not verified ' + x.email + ' yet. Approve anyway? This also marks the email as verified.')) return;
+              if (a === 'approve') p = T.adminApi('set_status', { id: id, status: 'active' });
+              else if (a === 'msg') { S.adtab = 'messages'; S.msgTo = String(id); T.render(); return; }
+              else if (a === 'reset') {
+                p = T.adminApi('send_reset', { id: id }).then(function (r) {
+                  if (r.link) $('#admOut').innerHTML = '<p class="notice" style="margin-top:12px">Email is not set up, so send this one-time link to ' + esc(x.name) + ' yourself (valid 24 h):<br><input class="num" readonly value="' + esc(r.link) + '" onclick="this.select()"></p>';
+                  T.toast(r.emailed ? 'Reset email sent' : 'Reset link created'); return 'keep';
+                });
+              } else if (a === 'delete') {
+                var typed = window.prompt('This deletes ' + x.name + ' and all their trades. Type their email to confirm:');
+                if (typed === null) return;
+                p = T.adminApi('delete_user', { id: id, confirm: typed.trim() });
+              }
+              btn.disabled = true;
+              p.then(function (r) { if (r !== 'keep') { T.toast('Done'); AD.users(b, el); } else btn.disabled = false; }).catch(function (er) { btn.disabled = false; T.toast(er.message, true); });
+            };
+          });
+        };
+        var draw = function () {
+          var list = all.filter(match);
+          $('#adRows', b).innerHTML = list.length ? list.map(row).join('') : '<tr><td colspan="8"><div class="empty">No users match.</div></td></tr>';
+          $('#adCount', b).textContent = list.length === all.length ? all.length + ' users' : list.length + ' of ' + all.length + ' users';
+          bindBtns($('#adRows', b));
+        };
+        draw();
+        bindBtns($$('section', b)[0] && pend ? $$('section', b)[0] : document.createElement('div'));
+        $('#adQ', b).oninput = function () { F.q = this.value; draw(); };
+        $('#adS', b).onchange = function () { F.status = this.value; draw(); };
+        $('#adP', b).onchange = function () { F.plan = this.value; draw(); };
+        $('#adR', b).onchange = function () { F.role = this.value; draw(); };
         var apAll = $('#apAll', b);
         if (apAll) apAll.onclick = function () {
           if (!window.confirm('Approve all ' + pend + ' waiting accounts?')) return;
@@ -335,31 +386,6 @@
           T.adminApi('approve_all', {}).then(function (r) { T.toast(r.approved + ' approved'); S.adminPending = 0; T.renderShell(); AD.users(b, el); }).catch(function (er) { apAll.disabled = false; T.toast(er.message, true); });
         };
         S.adminPending = pend; S.payPending = j.pending_payments || 0; T.renderShell();
-        var qt; $('#adQ', b).oninput = function () { var v = this.value; clearTimeout(qt); qt = setTimeout(function () { S.adq = v; AD.users(b, el); }, 250); };
-        $$('[data-a]', b).forEach(function (btn) {
-          btn.onclick = function () {
-            var id = +btn.dataset.id, a = btn.dataset.a, x = all.find(function (z) { return z.id === id; }), p;
-            if (a === 'approve' && !x.email_verified && !window.confirm(x.name + ' has not confirmed ' + x.email + ' yet. Approve anyway? This also marks the email as confirmed.')) return;
-            if (a === 'approve' || a === 'enable') p = T.adminApi('set_status', { id: id, status: 'active' });
-            else if (a === 'disable') { if (!window.confirm('Disable ' + x.name + '? They are signed out and cannot sign in.')) return; p = T.adminApi('set_status', { id: id, status: 'disabled' }); }
-            else if (a === 'promote') p = T.adminApi('set_role', { id: id, role: 'admin' });
-            else if (a === 'demote') p = T.adminApi('set_role', { id: id, role: 'user' });
-            else if (a === 'msg') { S.adtab = 'messages'; S.msgTo = String(id); T.render(); return; }
-            else if (a === 'plan') { T.setPlanModal(x, j.plans, function () { AD.users(b, el); }); return; }
-            else if (a === 'reset') {
-              p = T.adminApi('send_reset', { id: id }).then(function (r) {
-                if (r.link) $('#admOut').innerHTML = '<p class="notice" style="margin-top:12px">Email is not set up, so send this one-time link to ' + esc(x.name) + ' yourself (valid 24 h):<br><input class="num" readonly value="' + esc(r.link) + '" onclick="this.select()"></p>';
-                T.toast(r.emailed ? 'Reset email sent' : 'Reset link created'); return 'keep';
-              });
-            } else if (a === 'delete') {
-              var typed = window.prompt('This deletes ' + x.name + ' and all their trades. Type their email to confirm:');
-              if (typed === null) return;
-              p = T.adminApi('delete_user', { id: id, confirm: typed.trim() });
-            }
-            btn.disabled = true;
-            p.then(function (r) { if (r !== 'keep') { T.toast('Done'); AD.users(b, el); } else btn.disabled = false; }).catch(function (er) { btn.disabled = false; T.toast(er.message, true); });
-          };
-        });
       }).catch(function (er) { b.innerHTML = '<p class="alert">' + esc(er.message) + '</p>'; });
     },
 
@@ -415,6 +441,13 @@
           '<div class="row" style="gap:14px">' + (s.logo ? '<img src="' + esc(s.logo) + '" alt="Current logo" style="width:56px;height:56px;object-fit:contain;border:1px solid var(--line);border-radius:10px;background:var(--sunk)">' : '<span class="mono-mark" style="width:56px;height:56px;font-size:20px">' + esc(T.initials(s.name)) + '</span>') +
           '<label class="btn" for="logoF">' + T.icon('upload') + (s.logo ? 'Replace logo' : 'Upload logo') + '</label><input id="logoF" type="file" accept="image/png,image/jpeg,image/webp" hidden>' +
           (s.logo ? '<button class="btn ghost" type="button" id="logoDel">Remove</button>' : '') + '</div><div class="uplist" id="logoUp" style="margin-top:8px;max-width:360px"></div>' +
+          '<div class="panel-head" style="margin:18px 0 10px"><div><h2>Landing page</h2><p>What visitors see before they sign in. Leave empty to use the default text. <a href="/welcome.html" target="_blank" rel="noopener">Open landing page</a></p></div></div><div class="fg">' +
+          '<label class="f s4">Headline<input id="lTitle" value="' + esc(s.landing_title || '') + '" maxlength="120" placeholder="Know why you win. Fix why you lose."></label>' +
+          '<label class="f s4">Intro text<textarea id="lText" maxlength="400" style="min-height:70px" placeholder="Log every trade in seconds, follow your checklist, and see which setups, sessions, emotions and mistakes drive your results.">' + esc(s.landing_text || '') + '</textarea></label>' +
+          '<label class="f s4">Trading quotes <span class="hint">one per line as: Quote — Author. Leave empty for the built-in quotes.</span><textarea id="lQuotes" style="min-height:120px" placeholder="Plan your trade and trade your plan. — Trading proverb">' + esc(s.quotes || '') + '</textarea></label>' +
+          '</div><div class="row" style="gap:14px;margin-top:12px">' + (s.hero ? '<img src="' + esc(s.hero) + '" alt="Landing image" style="width:120px;height:80px;object-fit:cover;border:1px solid var(--line);border-radius:8px">' : '<span class="small muted">Using the built-in chart picture.</span>') +
+          '<label class="btn" for="heroF">' + T.icon('upload') + (s.hero ? 'Replace landing image' : 'Upload landing image') + '</label><input id="heroF" type="file" accept="image/png,image/jpeg,image/webp" hidden>' +
+          (s.hero ? '<button class="btn ghost" type="button" id="heroDel">Use built-in chart</button>' : '') + '</div><div class="uplist" id="heroUp" style="margin-top:8px;max-width:360px"></div>' +
           '<div class="panel-head" style="margin:18px 0 10px"><div><h2>Sign-up</h2></div></div><div class="fg">' +
           '<label class="switch s2"><input type="checkbox" id="sOpen"' + (s.registration_open ? ' checked' : '') + '>Allow new sign-ups</label>' +
           '<label class="switch s2"><input type="checkbox" id="sAppr"' + (s.require_approval ? ' checked' : '') + '>New accounts need admin approval</label></div>' +
@@ -435,7 +468,7 @@
           e.preventDefault();
           T.adminApi('save_site', { name: $('#sName').value, tagline: $('#sTag').value, accent: $('#sAccT').value, support_email: $('#sMail').value, footer: $('#sFoot').value,
             registration_open: $('#sOpen').checked ? '1' : '0', require_approval: $('#sAppr').checked ? '1' : '0', legal_entity: $('#sEnt').value, country: $('#sCountry').value,
-            terms: $('#sTerms').value, privacy: $('#sPriv').value })
+            terms: $('#sTerms').value, privacy: $('#sPriv').value, landing_title: $('#lTitle').value, landing_text: $('#lText').value, quotes: $('#lQuotes').value })
             .then(function (r) { T.toast('Site settings saved'); afterSite(r.site); }).catch(function (er) { T.toast(er.message, true); });
         };
         $('#logoF', b).onchange = function () {
@@ -444,6 +477,13 @@
           (f.size <= 1024 * 1024 ? Promise.resolve(f) : T.shrinkImage(f, 512, 0.9, false)).then(function (blob) { return T.upload('/api/admin?action=upload_logo', blob, function (p) { setP(p); }); })
             .then(function (r) { setP(1, 'ok'); T.toast('Logo updated'); setTimeout(function () { afterSite(r.site); }, 300); }).catch(function (er) { setP(1, 'err'); T.toast(er.message, true); });
         };
+        $('#heroF', b).onchange = function () {
+          var f = this.files[0]; if (!f) return;
+          var setP = T.uploadList($('#heroUp')).add(f.name);
+          T.shrinkImage(f, 1600, 0.85, false).then(function (blob) { return T.upload('/api/admin?action=upload_hero', blob, function (p) { setP(p); }); })
+            .then(function (r) { setP(1, 'ok'); T.toast('Landing image updated'); setTimeout(function () { afterSite(r.site); }, 300); }).catch(function (er) { setP(1, 'err'); T.toast(er.message, true); });
+        };
+        var hd = $('#heroDel', b); if (hd) hd.onclick = function () { T.adminApi('delete_hero', {}).then(function (r) { afterSite(r.site); }); };
         var ld = $('#logoDel', b); if (ld) ld.onclick = function () { T.adminApi('delete_logo', {}).then(function (r) { afterSite(r.site); }); };
       }).catch(function (er) { b.innerHTML = '<p class="alert">' + esc(er.message) + '</p>'; });
     }

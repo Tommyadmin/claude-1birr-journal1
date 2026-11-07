@@ -2,7 +2,7 @@
 import { q, ensureSchema, installFresh } from '../lib/db.js';
 import {
   secret, safeEqual, hashPassword, verifyPassword, clearSession, getAuth, setSession,
-  getPreUser, makeToken, useToken, peekToken, appUrl, makeOtp, checkOtp, otpCooldown,
+  getPreUser, makeToken, useToken, peekToken, appUrl, makeOtp, checkOtp, otpCooldown, setMarker,
 } from '../lib/auth.js';
 import { startTrial } from '../lib/plans.js';
 import { mails } from '../lib/mail.js';
@@ -38,6 +38,7 @@ export default async function handler(req, res) {
     if (action === 'status') {
       const installed = (await ensureSchema()) && (await q('SELECT 1 FROM users LIMIT 1')).length > 0;
       const auth = installed ? await getAuth(req) : null;
+      setMarker(req, res, !!auth);
       const pre = installed && !auth ? await getPreUser(req) : null;
       return send(res, 200, {
         installed, logged_in: !!auth,

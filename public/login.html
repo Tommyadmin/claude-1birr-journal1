@@ -8,8 +8,8 @@
 <link rel="icon" href="/api/media?type=logo">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/assets/app.css?v=4.0.0">
-<script src="/assets/theme.js?v=4.0.0"></script>
+<link rel="stylesheet" href="/assets/app.css?v=6.0.0">
+<script src="/assets/theme.js?v=6.0.0"></script>
 <style>
   .auth-card{width:min(420px,100%)}
   .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:600 15px var(--f-body);text-decoration:none;cursor:pointer}
@@ -225,7 +225,7 @@
     else mk.textContent = String(site.name || '?').split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('');
     $('foot').innerHTML = '';
     if (site.footer) $('foot').appendChild(document.createTextNode(site.footer + ' · '));
-    $('foot').insertAdjacentHTML('beforeend', '<a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>');
+    $('foot').insertAdjacentHTML('beforeend', '<a href="/welcome.html">Home</a> · <a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>');
     regOpen = site.registration_open !== false;
     if (!regOpen) document.querySelectorAll('[data-go="register"]').forEach(function (a) { a.hidden = true; });
     var hint = document.querySelector('[data-panel="register"] .hint');

@@ -19,8 +19,8 @@ export default async function handler(req, res) {
     const qs = query(req);
     const type = qs.get('type');
 
-    if (type === 'logo') {
-      const l = await getLogo().catch(() => null);
+    if (type === 'logo' || type === 'hero') {
+      const l = await getLogo(type).catch(() => null);
       if (!l) return fail(res, 404, 'No logo');
       return out(res, l.mime, l.data, 'public, max-age=86400');
     }

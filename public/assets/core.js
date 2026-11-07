@@ -343,7 +343,7 @@
   };
   function legalLinks() {
     var s = S.site || {};
-    return (s.footer ? esc(s.footer) + ' · ' : '') + '<a href="/terms.html" target="_blank" rel="noopener">Terms</a> · <a href="/privacy.html" target="_blank" rel="noopener">Privacy</a>';
+    return (s.footer ? esc(s.footer) + ' · ' : '') + '<a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>';
   }
 
   T.renderShell = function () {
@@ -395,6 +395,7 @@
 
   // ---------- router ----------
   T.render = function () {
+    if (!S.user) return;   // still loading
     var v = (location.hash || '#dashboard').slice(1).split('/')[0];
     if (!T.views[v] || (v === 'admin' && S.user.role !== 'admin')) v = 'dashboard';
     var changed = S.view !== v;

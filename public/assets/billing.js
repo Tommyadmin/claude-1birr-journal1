@@ -143,6 +143,40 @@
     dlg.showModal();
   };
 
+  // ================= ADMIN: EDIT USER (type, status, subscription) =================
+  T.editUserModal = function (u, j, done) {
+    var dlg = $('#modal'), me = u.id === j.me;
+    var cur = u.plan_effective, curDays = u.days_left != null ? u.days_left : 0;
+    dlg.innerHTML = '<form method="dialog" id="euF"><div class="dlg-head"><div><div class="eyebrow">Edit user</div><h2>' + esc(u.name) + '</h2><p class="small muted" style="margin:2px 0 0">' + esc(u.email) + ' · ' + esc(u.phone || 'no phone') + '</p></div><button class="btn sm" type="button" id="euX">Close</button></div>' +
+      '<div class="dlg-body">' +
+      '<div class="sect"><h3>Account</h3><div class="fg">' +
+      '<label class="f s2">User type<select id="euRole"' + (me ? ' disabled' : '') + '>' + T.opt([['user', 'User'], ['admin', 'Admin (full access, manages users)']], u.role) + '</select></label>' +
+      '<label class="f s2">Status<select id="euStatus"' + (me ? ' disabled' : '') + '>' + T.opt((u.status === 'pending' ? [['pending', 'Waiting for approval']] : []).concat([['active', 'Active'], ['disabled', 'Disabled (cannot sign in)']]), u.status) + '</select></label>' +
+      (me ? '<p class="small muted s4" style="margin:0">You cannot change your own type or status.</p>' : '') + '</div></div>' +
+      '<div class="sect"><h3>Subscription</h3><p class="small muted" style="margin:0">Now: <b>' + esc(u.plan_name) + '</b>' + (u.on_trial && cur !== 'free' ? ' (trial)' : '') +
+      (u.days_left != null ? ', ' + u.days_left + ' days left' : u.lifetime && u.role !== 'admin' ? ', no end date' : '') + (u.role === 'admin' ? '. Admins always have every feature.' : '.') + '</p>' +
+      '<div class="fg"><label class="f s2">Subscription type<select id="euPlan">' + j.plans.map(function (p) { return '<option value="' + p.id + '"' + (p.id === cur ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="f s2">Length from today (days) <span class="hint">0 = no end date. Ignored for Free.</span><input id="euDays" type="number" min="0" max="3650" value="' + (curDays || 30) + '"></label>' +
+      '<label class="switch s4"><input type="checkbox" id="euApply">Apply this subscription change</label></div></div>' +
+      '</div><div class="dlg-foot"><span></span><div class="row"><button class="btn" type="button" id="euC">Cancel</button><button class="btn primary" type="submit">Save changes</button></div></div></form>';
+    var close = function () { dlg.close(); };
+    $('#euX').onclick = $('#euC').onclick = close;
+    var mark = function () { $('#euApply').checked = true; };
+    $('#euPlan').onchange = mark; $('#euDays').oninput = mark;
+    $('#euF').onsubmit = function (e) {
+      e.preventDefault();
+      var jobs = [], role = $('#euRole').value, st = $('#euStatus').value;
+      if (!me && role !== u.role) jobs.push(function () { return T.adminApi('set_role', { id: u.id, role: role }); });
+      if (!me && st !== u.status && st !== 'pending') jobs.push(function () { return T.adminApi('set_status', { id: u.id, status: st }); });
+      if ($('#euApply').checked) jobs.push(function () { return T.adminApi('set_plan', { id: u.id, plan: $('#euPlan').value, days: $('#euDays').value }); });
+      if (!jobs.length) { close(); return; }
+      var chain = Promise.resolve();
+      jobs.forEach(function (fn) { chain = chain.then(fn); });
+      chain.then(function () { close(); T.toast('User updated'); done(); }).catch(function (er) { T.toast(er.message, true); done(); });
+    };
+    dlg.showModal();
+  };
+
   // ================= ADMIN: SUBSCRIPTIONS =================
   T.adminBilling = function (b) {
     T.adminApi('billing').then(function (j) {

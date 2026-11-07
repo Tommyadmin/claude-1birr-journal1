@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<title>Trading journal</title>
+<meta name="description" content="A trading journal that shows why you win or lose: checklist, analytics, psychology, mistakes and MT5 sync.">
+<link rel="icon" href="/api/media?type=logo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/app.css?v=6.0.0">
+<script src="/assets/theme.js?v=6.0.0"></script>
+<style>
+  /* Landing: dark trading-floor hero, then light sections */
+  .lp{min-height:100vh;display:flex;flex-direction:column}
+  .lp-in{width:100%;max-width:1160px;margin:0 auto;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+  .lp-nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+  .lp-nav .lp-in{display:flex;align-items:center;gap:12px;padding-block:12px}
+  .lp-nav .brand{padding:0;margin-right:auto}
+  .lp-nav nav{display:flex;gap:4px}
+  .lp-nav nav a{color:var(--fg-2);text-decoration:none;font:500 14px var(--f-body);padding:8px 10px;border-radius:7px}
+  .lp-nav nav a:hover{background:var(--sunk);color:var(--fg)}
+  @media (max-width:760px){.lp-nav nav{display:none}}
+  .hero{padding-block:56px 40px}
+  .hero .lp-in{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:40px;align-items:center}
+  @media (max-width:900px){.hero .lp-in{grid-template-columns:minmax(0,1fr)}.hero{padding-block:32px 24px}}
+  .hero h1{font:800 clamp(32px,4.6vw,52px)/1.08 var(--f-head);letter-spacing:-.025em;margin:10px 0 16px}
+  .hero h1 em{font-style:normal;color:var(--accent)}
+  .hero p.lead{font-size:17px;line-height:1.6;color:var(--fg-2);margin:0 0 24px;max-width:54ch}
+  .cta{display:flex;gap:10px;flex-wrap:wrap}
+  .cta .btn{padding:12px 20px;font-size:15px}
+  .trust{display:flex;gap:18px;flex-wrap:wrap;margin-top:22px;font-size:13px;color:var(--muted)}
+  .trust span{display:flex;align-items:center;gap:6px}
+  .trust b{color:var(--fg)}
+  .shot-card{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#0b0f17;box-shadow:var(--shadow-lg);aspect-ratio:4/3;max-width:100%}
+  .shot-card img{width:100%;height:100%;object-fit:cover;display:block}
+  .shot-card canvas{width:100%;height:100%;display:block}
+  .shot-tag{position:absolute;left:14px;top:14px;font:600 11px var(--f-num);letter-spacing:.06em;color:#cbd5e1;background:rgba(15,23,42,.7);border:1px solid rgba(148,163,184,.25);padding:4px 8px;border-radius:6px}
+  .shot-quote{position:absolute;left:14px;right:14px;bottom:14px;background:rgba(11,15,23,.78);backdrop-filter:blur(6px);border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:14px 16px;color:#e5e7eb}
+  .shot-quote q{display:block;font:600 16px/1.45 var(--f-head);quotes:"“" "”";transition:opacity .4s}
+  .shot-quote cite{display:block;margin-top:6px;font:500 12px var(--f-body);font-style:normal;color:#94a3b8;transition:opacity .4s}
+  .qdots{display:flex;gap:5px;margin-top:10px}
+  .qdots button{width:7px;height:7px;border-radius:50%;border:0;padding:0;background:rgba(148,163,184,.4);cursor:pointer}
+  .qdots button[aria-current=true]{background:var(--accent);width:18px;border-radius:4px}
+  .sec{padding-block:56px}
+  .sec.alt{background:var(--panel);border-block:1px solid var(--line)}
+  .sec h2{font:700 clamp(24px,3vw,32px)/1.2 var(--f-head);letter-spacing:-.02em;margin:6px 0 10px}
+  .sec .sub{color:var(--muted);font-size:15.5px;margin:0 0 28px;max-width:62ch}
+  .feats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  @media (max-width:900px){.feats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:560px){.feats{grid-template-columns:minmax(0,1fr)}}
+  .feat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:8px}
+  .sec:not(.alt) .feat{background:var(--panel)}
+  .feat .ic{width:38px;height:38px;border-radius:9px;background:var(--accent-soft);display:grid;place-items:center}
+  .feat .ic svg{width:20px;height:20px;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .feat h3{font:700 16px var(--f-head)}
+  .feat p{margin:0;color:var(--fg-2);font-size:14px;line-height:1.55}
+  .steps3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;counter-reset:s}
+  @media (max-width:760px){.steps3{grid-template-columns:minmax(0,1fr)}}
+  .steps3 div{border-left:2px solid var(--accent);padding:4px 0 4px 16px}
+  .steps3 b{display:block;font:700 15px var(--f-head);margin-bottom:4px}
+  .steps3 b::before{counter-increment:s;content:counter(s) ". ";color:var(--accent)}
+  .steps3 p{margin:0;color:var(--fg-2);font-size:14px}
+  .prices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  @media (max-width:900px){.prices{grid-template-columns:minmax(0,1fr)}}
+  .price{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px}
+  .price.hl{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .price ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:7px;font-size:13.5px}
+  .price li{display:flex;gap:8px}
+  .price li.off{color:var(--faint)}
+  .bigq{font:700 clamp(20px,2.6vw,28px)/1.4 var(--f-head);letter-spacing:-.01em;max-width:30ch;margin:0}
+  .lp-foot{margin-top:auto;border-top:1px solid var(--line);padding-block:24px;color:var(--muted);font-size:13px}
+  .lp-foot .lp-in{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .lp-foot a{color:var(--muted)}
+  .disclaimer{font-size:12px;color:var(--faint);margin-top:8px;max-width:90ch}
+</style>
+</head>
+<body>
+<div class="lp">
+  <header class="lp-nav"><div class="lp-in">
+    <a class="brand" href="/welcome.html" id="brand"><span class="mono-mark" id="mark">·</span><span><b id="bName"></b><small id="bTag"></small></span></a>
+    <nav aria-label="Page"><a href="#features">Features</a><a href="#how">How it works</a><a href="#pricing">Pricing</a></nav>
+    <button class="theme-btn" type="button"></button>
+    <a class="btn ghost" href="/login.html">Sign in</a>
+    <a class="btn primary" href="/login.html#register">Get started</a>
+  </div></header>
+
+  <section class="hero"><div class="lp-in">
+    <div>
+      <span class="pill acc" id="trialPill">Trading journal</span>
+      <h1 id="hTitle">Know <em>why</em> you win.<br>Fix why you lose.</h1>
+      <p class="lead" id="hText">Log every trade in seconds, follow your checklist, and see which setups, sessions, emotions and mistakes really drive your results. Sync MT5 automatically.</p>
+      <div class="cta"><a class="btn primary" href="/login.html#register" id="ctaMain">Start free trial</a><a class="btn" href="/login.html">I already have an account</a></div>
+      <div class="trust"><span>✓ <b>No card needed</b></span><span>✓ Pay with <b>telebirr</b> or <b>crypto</b></span><span>✓ Works on phone and desktop</span></div>
+    </div>
+    <figure class="shot-card" style="margin:0" aria-label="Trading chart">
+      <canvas id="chart" width="880" height="660" aria-hidden="true"></canvas>
+      <span class="shot-tag">XAUUSD · M15</span>
+      <figcaption class="shot-quote" aria-live="polite"><q id="qText"></q><cite id="qBy"></cite><div class="qdots" id="qDots" role="tablist" aria-label="Quotes"></div></figcaption>
+    </figure>
+  </div></section>
+
+  <section class="sec alt" id="features"><div class="lp-in">
+    <div class="eyebrow">Features</div>
+    <h2>Everything a serious trader tracks</h2>
+    <p class="sub">Not just how much you made, but why. Every number comes from your own trades.</p>
+    <div class="feats" id="feats"></div>
+  </div></section>
+
+  <section class="sec" id="how"><div class="lp-in">
+    <div class="eyebrow">How it works</div>
+    <h2>From first trade to clear patterns</h2>
+    <p class="sub">Set up in a few minutes. Your journal learns your style as you trade.</p>
+    <div class="steps3">
+      <div><b>Create your account</b><p>Sign up with email or Google and verify with a 6-digit code. Your free trial starts right away.</p></div>
+      <div><b>Log or sync trades</b><p>Add trades by hand, import a CSV or Excel file, or connect MT5 to sync closed trades automatically.</p></div>
+      <div><b>Review and improve</b><p>Tick your checklist, tag emotions and mistakes, and let the analytics show what to keep and what to cut.</p></div>
+    </div>
+  </div></section>
+
+  <section class="sec alt" id="pricing"><div class="lp-in">
+    <div class="eyebrow">Pricing</div>
+    <h2>Simple plans</h2>
+    <p class="sub" id="pSub">Start with a free trial. Keep a free journal afterwards, or unlock everything.</p>
+    <div class="prices" id="prices"><p class="muted">Loading plans…</p></div>
+  </div></section>
+
+  <section class="sec"><div class="lp-in" style="display:flex;flex-direction:column;gap:16px;align-items:flex-start">
+    <p class="bigq" id="q2"></p><span class="muted" id="q2by"></span>
+    <div class="cta"><a class="btn primary" href="/login.html#register">Start your journal</a></div>
+  </div></section>
+
+  <footer class="lp-foot"><div class="lp-in">
+    <span id="fText"></span>
+    <span><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a> · <a href="/login.html">Sign in</a></span>
+  </div><div class="lp-in"><p class="disclaimer">Trading involves substantial risk of loss. This journal records and analyzes your own trades; it does not give financial advice or trading signals.</p></div></footer>
+</div>
+
+<script src="/assets/core.js?v=6.0.0"></script>
+<script>
+(function () {
+  var T = window.TJ, esc = T.esc, $ = function (id) { return document.getElementById(id); };
+
+  // signed in already? go to the app
+  fetch('/api/auth?action=status', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (s) {
+    if (s.logged_in) location.replace('/' + location.hash);
+    if (s.installed === false) location.replace('/login.html');
+  }).catch(function () {});
+
+  var FEATS = [
+    ['today', 'Pre-trade checklist', 'Your own rules on the Today page, trading windows, loss limits and a position-size calculator.'],
+    ['analytics', 'Deep analytics', 'Win rate, profit factor, expectancy, drawdown and R by strategy, session, hour, weekday and instrument.'],
+    ['profile', 'Psychology tracking', 'Emotions before, during and after each trade, confidence and revenge trades, compared with results.'],
+    ['plan', 'Mistake costs', 'Tag mistakes like moving your stop or closing winners early and see exactly what each one costs.'],
+    ['calendar', 'Trading calendar', 'Green and red days, weekly and monthly totals, streaks and a note for every day.'],
+    ['upload', 'MT5 sync and imports', 'Closed MT5 trades sync automatically. Import CSV or Excel files from your broker with duplicate checks.']
+  ];
+  $('feats').innerHTML = FEATS.map(function (f) { return '<div class="feat"><span class="ic">' + T.icon(f[0]) + '</span><h3>' + f[1] + '</h3><p>' + f[2] + '</p></div>'; }).join('');
+
+  // candlestick illustration (generated, not real market data)
+  function drawChart(accent) {
+    var c = $('chart'), g = c.getContext('2d'), W = c.width, H = c.height;
+    g.fillStyle = '#0b0f17'; g.fillRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(148,163,184,.10)'; g.lineWidth = 1;
+    for (var y = 40; y < H; y += 60) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    for (var x = 40; x < W; x += 80) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+    var seed = 7, rnd = function () { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    var n = 46, bw = W / (n + 4), p = 420, pts = [], up = '#22c55e', dn = '#ef4444';
+    for (var i = 0; i < n; i++) {
+      var drift = i < 14 ? 2.2 : i < 22 ? -4.5 : i < 25 ? 1 : -6.2;  // range, sweep down, CHOCH, rally
+      var o = p, cl = o - drift * 2 + (rnd() - .5) * 26, hi = Math.min(o, cl) - rnd() * 18, lo = Math.max(o, cl) + rnd() * 18;
+      if (i === 21) lo += 34;  // liquidity sweep wick
+      pts.push({ o: o, c: cl, h: hi, l: lo }); p = cl;
+    }
+    var minY = Math.min.apply(null, pts.map(function (k) { return k.h; })) - 30, maxY = Math.max.apply(null, pts.map(function (k) { return k.l; })) + 40;
+    var sy = function (v) { return 40 + (v - minY) / (maxY - minY) * (H - 200); };
+    // moving average
+    g.beginPath(); g.strokeStyle = accent; g.lineWidth = 2.2; g.globalAlpha = .9;
+    pts.forEach(function (k, i) { var a = pts.slice(Math.max(0, i - 7), i + 1), m = a.reduce(function (s2, z) { return s2 + z.c; }, 0) / a.length, xx = (i + 2) * bw + bw / 2; i ? g.lineTo(xx, sy(m)) : g.moveTo(xx, sy(m)); });
+    g.stroke(); g.globalAlpha = 1;
+    pts.forEach(function (k, i) {
+      var xx = (i + 2) * bw, col = k.c < k.o ? up : dn;
+      g.strokeStyle = col; g.lineWidth = 1.6; g.beginPath(); g.moveTo(xx + bw / 2, sy(k.h)); g.lineTo(xx + bw / 2, sy(k.l)); g.stroke();
+      g.fillStyle = col; var t = sy(Math.min(k.o, k.c)), b = sy(Math.max(k.o, k.c)); g.fillRect(xx + bw * .18, t, bw * .64, Math.max(2, b - t));
+    });
+    // marked levels
+    var lowLvl = sy(pts[13].l + 6);
+    g.setLineDash([6, 6]); g.strokeStyle = 'rgba(203,213,225,.55)'; g.lineWidth = 1.2;
+    g.beginPath(); g.moveTo(bw * 2, lowLvl); g.lineTo(W - 10, lowLvl); g.stroke(); g.setLineDash([]);
+    g.fillStyle = 'rgba(203,213,225,.85)'; g.font = '600 15px "JetBrains Mono", monospace'; g.fillText('Asia low', W - 110, lowLvl - 8);
+    var ex = (24 + 2) * bw + bw / 2, ey = sy(pts[24].c);
+    g.fillStyle = accent; g.beginPath(); g.arc(ex, ey, 7, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#e5e7eb'; g.fillText('Entry · CHOCH', ex + 12, ey + 5);
+  }
+
+  var quotes = [], qi = 0, timer;
+  function showQuote(i) {
+    if (!quotes.length) return;
+    qi = (i + quotes.length) % quotes.length;
+    var t = $('qText'), b = $('qBy');
+    t.style.opacity = b.style.opacity = 0;
+    setTimeout(function () {
+      t.textContent = quotes[qi].text; b.textContent = quotes[qi].by ? '— ' + quotes[qi].by : '';
+      t.style.opacity = b.style.opacity = 1;
+      Array.prototype.forEach.call($('qDots').children, function (d, j) { d.setAttribute('aria-current', String(j === qi)); });
+    }, 250);
+  }
+
+  fetch('/api/site?doc=landing').then(function (r) { return r.json(); }).then(function (s) {
+    var accent = s.accent || '#b07d12';
+    document.documentElement.style.setProperty('--accent', accent);
+    document.title = s.name + (s.tagline ? ' · ' + s.tagline : '');
+    $('bName').textContent = s.name; $('bTag').textContent = s.tagline || '';
+    if (s.logo) { var im = document.createElement('img'); im.src = s.logo; im.alt = ''; $('mark').replaceWith(im); } else $('mark').textContent = T.initials(s.name);
+    if (s.title) $('hTitle').textContent = s.title;
+    if (s.text) $('hText').textContent = s.text;
+    $('fText').textContent = s.footer || ('© ' + new Date().getFullYear() + ' ' + s.name);
+    var td = s.trial && s.trial.days;
+    $('trialPill').textContent = td ? td + '-day free trial' : (s.tagline || 'Trading journal');
+    $('ctaMain').textContent = td ? 'Start your ' + td + '-day free trial' : 'Create your free account';
+    if (s.registration_open === false) document.querySelectorAll('a[href="/login.html#register"]').forEach(function (a) { a.href = '/login.html'; a.textContent = 'Sign in'; });
+    // hero picture: uploaded by the admin, or the generated chart
+    if (s.hero) { var hi = document.createElement('img'); hi.src = s.hero; hi.alt = 'Trading chart'; $('chart').replaceWith(hi); document.querySelector('.shot-tag').hidden = true; }
+    else drawChart(accent);
+    quotes = s.quotes || [];
+    $('qDots').innerHTML = quotes.map(function (q, i) { return '<button type="button" aria-label="Quote ' + (i + 1) + '"></button>'; }).join('');
+    Array.prototype.forEach.call($('qDots').children, function (d, i) { d.onclick = function () { clearInterval(timer); showQuote(i); timer = setInterval(function () { showQuote(qi + 1); }, 7000); }; });
+    showQuote(0);
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce && quotes.length > 1) timer = setInterval(function () { showQuote(qi + 1); }, 7000);
+    var last = quotes[quotes.length - 1] || {}; $('q2').textContent = last.text ? '“' + last.text + '”' : ''; $('q2by').textContent = last.by ? '— ' + last.by : '';
+    // pricing
+    var P = s.plans, F = s.features || {};
+    if (!P) { $('prices').innerHTML = ''; return; }
+    var order = ['analytics', 'reports', 'import', 'screenshots', 'mt5', 'plan_notes', 'priority_support'];
+    $('pSub').textContent = (td ? td + '-day free trial with every feature of ' + (P[s.trial.plan] || {}).name + '. ' : '') + 'Pay monthly or yearly with telebirr or crypto. When a plan ends you keep a free journal (' + (P.free.limits.trades_month ? P.free.limits.trades_month + ' trades a month' : 'unlimited trades') + ').';
+    $('prices').innerHTML = ['starter', 'pro', 'ultimate'].map(function (id) {
+      var p = P[id];
+      return '<div class="price' + (p.highlight ? ' hl' : '') + '"><div class="row between"><h3 style="font:700 18px var(--f-head)">' + esc(p.name) + '</h3>' + (p.highlight ? '<span class="pill acc">Most popular</span>' : '') + '</div>' +
+        '<p class="small muted" style="margin:0">' + esc(p.description) + '</p>' +
+        '<div><span class="num" style="font-size:30px;font-weight:600">$' + T.n(p.price_month, p.price_month % 1 ? 2 : 0) + '</span><span class="muted small"> / month</span>' +
+        (p.price_month_etb ? '<div class="small muted num">or ' + T.n(p.price_month_etb, 0) + ' ETB with telebirr</div>' : '') +
+        (p.price_year ? '<div class="small muted">or $' + T.n(p.price_year, p.price_year % 1 ? 2 : 0) + ' a year</div>' : '') + '</div>' +
+        '<ul><li><span class="pos">✓</span>Journal, checklist, calendar, dashboard</li><li><span class="pos">✓</span>' + (p.limits.trades_month ? p.limits.trades_month + ' new trades a month' : 'Unlimited trades') + '</li>' +
+        order.map(function (f) { return '<li class="' + (p.features[f] ? '' : 'off') + '"><span class="' + (p.features[f] ? 'pos' : '') + '">' + (p.features[f] ? '✓' : '—') + '</span>' + esc(F[f] || f) + '</li>'; }).join('') + '</ul>' +
+        '<a class="btn ' + (p.highlight ? 'primary' : '') + '" href="/login.html#register" style="margin-top:auto">' + (td ? 'Start free trial' : 'Choose ' + esc(p.name)) + '</a></div>';
+    }).join('');
+  }).catch(function () { drawChart('#b07d12'); });
+})();
+</script>
+</body>
+</html>

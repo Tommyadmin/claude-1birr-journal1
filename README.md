@@ -125,7 +125,18 @@ The **Continue with Google** button appears automatically once both are set. Goo
 3. You get an email, and the payment appears under **Payments to review**.
 4. Check the transaction in your telebirr or wallet history, then click **Approve**. The plan starts immediately, or extends if they are renewing. The user gets an inbox message and an email.
 
-**Change a plan by hand.** On **Admin > Users**, click **Plan** to give, extend or remove a plan for any user, for example for gifts, refunds or payments made outside the app.
+**Change a user by hand.** On **Admin > Users**, click **Edit** to change the user type (user or admin), the status, and the subscription type with its length in days. Use it for gifts, refunds or payments made outside the app. Tick **Apply this subscription change** to change the plan.
+
+**Find users.** Search by name, email or phone (`0911…` or `+251…` both work). You can also filter by status, subscription and user type.
+
+## Landing page
+
+Visitors who aren't signed in see the landing page (`public/welcome.html`), with rotating trading quotes, a chart image, features and pricing. Signed-in users go straight to the app.
+
+To edit it, open **Admin > Site settings > Landing page**:
+- the headline and intro text
+- the quotes, one per line as `Quote — Author`
+- the hero image: upload your own, or leave it empty to use the built-in chart
 
 **Email verification code.** New users get a 6-digit code by email. It lasts 15 minutes, allows 5 tries, and a new code can be requested once a minute. This needs email (Resend) to be set up; without it, nobody can finish signing up.
 

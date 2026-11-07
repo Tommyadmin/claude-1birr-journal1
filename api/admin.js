@@ -67,7 +67,7 @@ export default async function handler(req, res) {
           google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
           blob: !!process.env.BLOB_READ_WRITE_TOKEN, admin_email: !!process.env.ADMIN_EMAIL,
         },
-        site: { ...publicSite(s), legal_entity: s.legal_entity, country: s.country,
+        site: { ...publicSite(s), legal_entity: s.legal_entity, country: s.country, landing_title: s.landing_title, landing_text: s.landing_text, quotes: s.quotes,
           terms: s.terms, privacy: s.privacy, terms_default: legalText({ ...s, terms: '' }, 'terms'), privacy_default: legalText({ ...s, privacy: '' }, 'privacy') },
       });
     }
@@ -75,15 +75,15 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return fail(res, 405, 'POST only');
     if (!checkCsrf(req, auth.session)) return fail(res, 403, 'Session expired. Reload the page.');
 
-    if (action === 'upload_logo') {
+    if (action === 'upload_logo' || action === 'upload_hero') {
       const buf = await readBody(req, 1024 * 1024);
       let mime = null;
       if (buf[0] === 0x89 && buf.slice(1, 4).toString() === 'PNG') mime = 'image/png';
       else if (buf[0] === 0xff && buf[1] === 0xd8) mime = 'image/jpeg';
       else if (buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') mime = 'image/webp';
-      if (!mime) return fail(res, 422, 'Use a PNG, JPG or WEBP logo (up to 1 MB).');
-      await q(`INSERT INTO site_assets (k, mime, data, updated_at) VALUES ('logo', $1, $2, now())
-        ON CONFLICT (k) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now()`, [mime, buf]);
+      if (!mime) return fail(res, 422, 'Use a PNG, JPG or WEBP image (up to 1 MB).');
+      await q(`INSERT INTO site_assets (k, mime, data, updated_at) VALUES ($3, $1, $2, now())
+        ON CONFLICT (k) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now()`, [mime, buf, action === 'upload_hero' ? 'hero' : 'logo']);
       return send(res, 200, { ok: true, site: publicSite(await getSite(true)) });
     }
 
@@ -134,8 +134,8 @@ export default async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
 
-    if (action === 'delete_logo') {
-      await q(`DELETE FROM site_assets WHERE k = 'logo'`);
+    if (action === 'delete_logo' || action === 'delete_hero') {
+      await q(`DELETE FROM site_assets WHERE k = $1`, [action === 'delete_hero' ? 'hero' : 'logo']);
       return send(res, 200, { ok: true, site: publicSite(await getSite(true)) });
     }
 
