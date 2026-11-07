@@ -65,7 +65,7 @@
   function handle(r) {
     if (r.status === 401) { location.href = '/login.html'; throw new Error('Signed out'); }
     return r.json().catch(function () { return { error: 'Server error (' + r.status + ')' }; }).then(function (j) {
-      if (!r.ok || j.error) throw new Error(j.error || 'Request failed');
+      if (!r.ok || j.error) { var er = new Error(j.error || 'Request failed'); er.code = j.code; throw er; }
       return j;
     });
   }
@@ -140,7 +140,7 @@
     return T.api('bootstrap').then(function (j) {
       S.trades = j.trades; S.settings = j.settings; S.prefs = j.prefs; S.user = j.user; S.site = j.site;
       S.inbox = j.inbox || []; S.notes = {}; (j.notes || []).forEach(function (n) { S.notes[n.day] = n.text; });
-      S.csrf = j.csrf; S.mt5 = j.mt5 || {};
+      S.csrf = j.csrf; S.mt5 = j.mt5 || {}; S.adminPending = j.admin_pending || 0; S.ent = j.ent || { features: {}, limits: {} }; S.monthTrades = j.trades_this_month || 0;
       S.skew = j.ts * 1000 - Date.now(); S.tzoff = j.tz_offset;
       fmtCache = {};
       T.applySite();
@@ -267,6 +267,37 @@
     return g;
   };
 
+  // ---------- plan & features ----------
+  T.can = function (f) { return !!(S.ent && S.ent.features && S.ent.features[f]); };
+  var FEAT_NAMES = { analytics: 'Full analytics', reports: 'Reports and PDF export', import: 'CSV and Excel import', screenshots: 'Chart screenshots', mt5: 'MT5 automatic sync', plan_notes: 'Trading plan and notes', priority_support: 'Priority support' };
+  T.featName = function (f) { return FEAT_NAMES[f] || f; };
+  T.lockedPanel = function (f, what) {
+    return '<section class="panel" style="text-align:center;padding:36px 20px"><div class="eyebrow">' + esc(S.ent.name || 'Your') + ' plan</div><h2 style="margin:6px 0 8px">' + esc(what || T.featName(f)) + ' is a paid feature</h2>' +
+      '<p class="muted" style="margin:0 auto 16px;max-width:52ch">Upgrade to a plan that includes ' + esc(T.featName(f).toLowerCase()) + '. You keep all your trades and notes when you change plans.</p>' +
+      '<a class="btn primary" href="#billing">See plans</a></section>';
+  };
+  T.planBadge = function () {
+    var e = S.ent || {};
+    if (e.admin) return '<span class="pill acc">Admin · ' + esc(e.name) + '</span>';
+    var cls = e.plan === 'free' ? '' : e.on_trial ? 'warn' : 'acc';
+    var t = esc(e.name || 'Free') + (e.on_trial ? ' trial' : '') + (e.days_left != null ? ' · ' + e.days_left + 'd left' : '');
+    return '<a class="pill ' + cls + '" href="#billing" style="text-decoration:none">' + t + '</a>';
+  };
+  T.planBanner = function () {
+    var e = S.ent || {};
+    if (e.admin) return '';
+    if (e.on_trial && e.days_left != null && e.days_left <= 3) return '<a class="notice" href="#billing"><b>Your ' + esc(e.name) + ' trial ends in ' + e.days_left + ' day' + (e.days_left === 1 ? '' : 's') + '.</b> Choose a plan to keep your features.</a>';
+    if (!e.on_trial && e.plan !== 'free' && e.days_left != null && e.days_left <= 3) return '<a class="notice" href="#billing"><b>Your ' + esc(e.name) + ' plan ends in ' + e.days_left + ' day' + (e.days_left === 1 ? '' : 's') + '.</b> Renew to keep your features.</a>';
+    if (e.lapsed) return '<a class="notice" href="#billing"><b>Your ' + esc(e.lapsed.name) + (e.lapsed ? '' : '') + ' access has ended.</b> You are on the Free plan. Subscribe to unlock analytics, reports, imports and MT5 sync again.</a>';
+    return '';
+  };
+  T.tradeLimitNote = function () {
+    var lim = S.ent && S.ent.limits && S.ent.limits.trades_month;
+    if (!lim) return '';
+    var left = Math.max(0, lim - S.monthTrades);
+    return '<span class="pill ' + (left ? '' : 'bad') + '">' + S.monthTrades + ' / ' + lim + ' trades this month</span>';
+  };
+
   // ---------- icons ----------
   var IC = {
     dashboard: '<path d="M3 13h8V3H3zM13 21h8v-8h-8zM3 21h8v-6H3zM13 3v8h8V3z"/>',
@@ -280,6 +311,7 @@
     profile: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     admin: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+    billing: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
     more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
@@ -296,7 +328,7 @@
     { sec: 'Insights' },
     { v: 'analytics', l: 'Analytics' }, { v: 'reports', l: 'Reports' }, { v: 'plan', l: 'Plan & notes' },
     { sec: 'Account' },
-    { v: 'inbox', l: 'Inbox' }, { v: 'profile', l: 'Profile' }, { v: 'settings', l: 'Settings' }, { v: 'admin', l: 'Admin', admin: true }
+    { v: 'inbox', l: 'Inbox' }, { v: 'billing', l: 'Subscription' }, { v: 'profile', l: 'Profile' }, { v: 'settings', l: 'Settings' }, { v: 'admin', l: 'Admin', admin: true }
   ];
   T.unread = function () { return (S.inbox || []).filter(function (m) { return !m.read; }).length; };
 
@@ -318,12 +350,13 @@
     var admin = S.user.role === 'admin', un = T.unread();
     var items = NAV.filter(function (n) { return !n.admin || admin; }).map(function (n) {
       if (n.sec) return '<div class="navsec">' + n.sec + '</div>';
-      return '<a class="nav-a" href="#' + n.v + '" data-v="' + n.v + '">' + T.icon(n.v) + '<span>' + n.l + '</span>' + (n.v === 'inbox' && un ? '<span class="badge">' + un + '</span>' : '') + '</a>';
+      return '<a class="nav-a" href="#' + n.v + '" data-v="' + n.v + '">' + T.icon(n.v) + '<span>' + n.l + '</span>' + (n.v === 'inbox' && un ? '<span class="badge">' + un + '</span>' : '') + (n.v === 'admin' && S.adminPending ? '<span class="badge" title="Waiting for approval">' + S.adminPending + '</span>' : '') + '</a>';
     }).join('');
     $('#side').innerHTML = brandHtml() +
       '<button class="btn primary" type="button" data-new style="margin:0 4px 8px">' + T.icon('plus') + 'New trade</button>' +
       '<nav class="navlist">' + items + '</nav>' +
       '<div class="side-foot"><a class="me" href="#profile">' + T.avatarHtml() + '<div><b>' + esc(S.user.name) + '</b><small>' + esc(S.user.email) + '</small></div></a>' +
+      '<div style="padding:0 8px">' + T.planBadge() + '</div>' +
       '<div class="side-tools"><button class="theme-btn" type="button"></button><a class="btn ghost sm" href="/api/auth?action=logout">' + T.icon('logout') + 'Sign out</a></div>' +
       '<div class="legal">' + legalLinks() + '</div></div>';
     $('#topbar').innerHTML = brandHtml() +

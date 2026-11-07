@@ -36,6 +36,13 @@ export default async function handler(req, res) {
       return out(res, r[0].mime, r[0].data, 'private, max-age=86400');
     }
 
+    if (type === 'proof') {
+      const pid = parseInt(qs.get('id'), 10) || 0;
+      const r = await q('SELECT user_id, proof_mime, proof FROM payments WHERE id = $1', [pid]);
+      if (!r.length || !r[0].proof || (r[0].user_id !== auth.user.id && auth.user.role !== 'admin')) return fail(res, 404, 'Not found');
+      return out(res, r[0].proof_mime, r[0].proof, 'private, max-age=3600');
+    }
+
     const id = parseInt(qs.get('id'), 10) || 0;
     const rows = await q(`SELECT s.mime, s.url, s.data FROM screenshots s JOIN trades t ON t.id = s.trade_id
       WHERE s.id = $1 AND t.user_id = $2`, [id, auth.user.id]);

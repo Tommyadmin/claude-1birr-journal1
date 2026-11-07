@@ -105,6 +105,30 @@ Until email is set up, nobody can confirm their email, so new sign-ups can't fin
 
 The **Continue with Google** button appears automatically once both are set. Google users are asked for their phone number after their first sign-in.
 
+## Subscriptions and free trial
+
+**Free trial.** Every new user gets a free trial once, starting when they verify their email with the 6-digit code.
+- The default is 7 days with Pro features.
+- Change the length and plan in **Admin > Subscriptions > Free trial**.
+
+**Plans.** Starter, Pro and Ultimate each have their own prices, limits and features. Edit them in **Admin > Subscriptions > Plans and features**.
+- Prices are set in USD, plus an optional ETB price shown for telebirr.
+- Limits are new trades per month and the number of MT5 accounts.
+
+**When a plan ends.** When a trial or subscription ends, the user drops to the **Free** plan: journal, checklist, calendar and dashboard, with a monthly trade limit. Nothing is deleted.
+
+**Payments are checked by hand.**
+1. In **Admin > Subscriptions > Payment methods**, set up how people pay:
+   - **telebirr:** your account name, phone number and optional merchant code
+   - **Crypto:** your wallets, for example USDT on TRC20
+2. The user picks a plan, pays, then enters the transaction number or hash and uploads a screenshot.
+3. You get an email, and the payment appears under **Payments to review**.
+4. Check the transaction in your telebirr or wallet history, then click **Approve**. The plan starts immediately, or extends if they are renewing. The user gets an inbox message and an email.
+
+**Change a plan by hand.** On **Admin > Users**, click **Plan** to give, extend or remove a plan for any user, for example for gifts, refunds or payments made outside the app.
+
+**Email verification code.** New users get a 6-digit code by email. It lasts 15 minutes, allows 5 tries, and a new code can be requested once a minute. This needs email (Resend) to be set up; without it, nobody can finish signing up.
+
 ## Upgrading from the earlier version
 
 1. Upload all the new files to GitHub, replacing the old ones. Delete `api/shot.js` from the repository; it was replaced by `api/media.js`.

@@ -214,6 +214,7 @@
     },
 
     mt5: function (b) {
+      if (!T.can('mt5')) { b.innerHTML = T.lockedPanel('mt5'); return; }
       var m = S.mt5 || {}, key = m.key || '', url = location.origin + '/api/sync';
       var fld = function (id, label, val, secret) {
         return '<label class="f s2">' + label + '<div class="row" style="flex-wrap:nowrap"><input id="' + id + '" class="num" readonly value="' + esc(val) + '"' + (secret ? ' type="password"' : '') + '>' +
@@ -278,11 +279,11 @@
   // ================= ADMIN =================
   S.adtab = 'users';
   T.views.admin = function (el) {
-    el.innerHTML = '<div class="page-head"><div><div class="eyebrow">Admin</div><h1>' + ({ users: 'Users', messages: 'Messages', site: 'Site settings' }[S.adtab]) + '</h1></div></div>' +
-      '<div class="tabs" role="tablist">' + [['users', 'Users'], ['messages', 'Messages'], ['site', 'Site settings']].map(function (t) { return '<button class="tab" role="tab" data-ad="' + t[0] + '" aria-selected="' + (S.adtab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div>' +
+    el.innerHTML = '<div class="page-head"><div><div class="eyebrow">Admin</div><h1>' + ({ users: 'Users', billing: 'Subscriptions', messages: 'Messages', site: 'Site settings' }[S.adtab]) + '</h1></div></div>' +
+      '<div class="tabs" role="tablist">' + [['users', 'Users'], ['billing', 'Subscriptions'], ['messages', 'Messages'], ['site', 'Site settings']].map(function (t) { return '<button class="tab" role="tab" data-ad="' + t[0] + '" aria-selected="' + (S.adtab === t[0]) + '">' + t[1] + (t[0] === 'billing' && S.payPending ? ' <span class="badge" style="display:inline-block;margin-left:4px">' + S.payPending + '</span>' : '') + '</button>'; }).join('') + '</div>' +
       '<div id="adBody" class="grid"><section class="panel"><p class="muted">Loading…</p></section></div>';
     $$('[data-ad]', el).forEach(function (b) { b.onclick = function () { S.adtab = b.dataset.ad; T.render(); }; });
-    AD[S.adtab]($('#adBody', el), el);
+    (S.adtab === 'billing' ? T.adminBilling : AD[S.adtab])($('#adBody', el), el);
   };
 
   var AD = {
@@ -298,34 +299,53 @@
         var btns = function (x) {
           if (x.id === j.me) return '<span class="small muted">You</span>';
           var s = '';
-          if (x.status === 'pending') s += '<button class="btn sm primary" data-a="approve" data-id="' + x.id + '"' + (x.email_verified ? '' : ' disabled title="Waiting for email confirmation"') + '>Approve</button>';
+          if (x.status === 'pending') s += '<button class="btn sm primary" data-a="approve" data-id="' + x.id + '">Approve</button>';
           if (x.status === 'active') s += '<button class="btn sm" data-a="disable" data-id="' + x.id + '">Disable</button>';
           if (x.status === 'disabled') s += '<button class="btn sm" data-a="enable" data-id="' + x.id + '">Enable</button>';
           if (x.status === 'active') s += '<button class="btn sm" data-a="' + (x.role === 'admin' ? 'demote' : 'promote') + '" data-id="' + x.id + '">' + (x.role === 'admin' ? 'Remove admin' : 'Make admin') + '</button>';
-          s += '<button class="btn sm" data-a="msg" data-id="' + x.id + '">Message</button><button class="btn sm" data-a="reset" data-id="' + x.id + '">Reset password</button>';
+          s += '<button class="btn sm" data-a="plan" data-id="' + x.id + '">Plan</button><button class="btn sm" data-a="msg" data-id="' + x.id + '">Message</button><button class="btn sm" data-a="reset" data-id="' + x.id + '">Reset password</button>';
           s += '<button class="btn sm danger" data-a="delete" data-id="' + x.id + '">Delete</button>';
           return '<div class="row" style="gap:6px;flex-wrap:nowrap">' + s + '</div>';
         };
         b.innerHTML = '<div class="kpis">' + T.kpi('Accounts', all.length) + T.kpi('Active', all.filter(function (x) { return x.status === 'active'; }).length) +
           T.kpi('Waiting for approval', pend, '', pend ? 'neg' : '') + T.kpi('Trades logged', all.reduce(function (s, x) { return s + x.trades; }, 0)) + '</div>' +
           (j.email_enabled ? '' : '<p class="notice" style="margin:0">Email is not set up (RESEND_API_KEY). Confirmation, approval and reset emails are not being sent.</p>') +
+          (pend ? '<section class="panel" style="border-color:color-mix(in srgb,var(--warn) 45%,transparent)"><div class="panel-head"><div><h2>Waiting for approval</h2><p>' + pend + ' new account' + (pend > 1 ? 's' : '') + '. Approving sends them an email and lets them sign in.</p></div>' +
+            (pend > 1 ? '<button class="btn primary" type="button" id="apAll">Approve all ' + pend + '</button>' : '') + '</div><div class="tbl-wrap"><table class="tbl"><tbody>' +
+            all.filter(function (x) { return x.status === 'pending'; }).map(function (x) {
+              return '<tr><td><b>' + esc(x.name) + '</b><br><span class="small muted">' + esc(x.email) + '</span></td><td class="num">' + esc(x.phone || 'No phone yet') + '</td>' +
+                '<td>' + (x.email_verified ? '<span class="pill ok">Email confirmed</span>' : '<span class="pill warn">Email not confirmed</span>') + '</td><td class="num small">' + esc(x.created_at) + '</td>' +
+                '<td><div class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn sm primary" data-a="approve" data-id="' + x.id + '">Approve</button><button class="btn sm danger" data-a="delete" data-id="' + x.id + '">Reject</button></div></td></tr>';
+            }).join('') + '</tbody></table></div></section>' : '') +
           '<section class="panel"><div class="panel-head"><input id="adQ" placeholder="Search name, email or phone" value="' + esc(S.adq || '') + '" style="max-width:320px"></div>' +
-          '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>User</th><th>Phone</th><th>Status</th><th class="n">Trades</th><th>Joined</th><th>Last sign-in</th><th></th></tr></thead><tbody>' +
+          '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>User</th><th>Phone</th><th>Status</th><th>Plan</th><th class="n">Trades</th><th>Joined</th><th>Last sign-in</th><th></th></tr></thead><tbody>' +
           u.map(function (x) {
             return '<tr><td><div class="row" style="flex-wrap:nowrap;gap:10px">' + (x.has_avatar ? '<img class="av" src="/api/media?type=avatar&uid=' + x.id + '" alt="">' : '<span class="av">' + esc(T.initials(x.name)) + '</span>') +
               '<div><b>' + esc(x.name) + '</b>' + (x.role === 'admin' ? ' <span class="src">ADMIN</span>' : '') + (x.google ? ' <span class="small muted">Google</span>' : '') + '<br><span class="small muted">' + esc(x.email) + '</span></div></div></td>' +
-              '<td class="num">' + esc(x.phone || '—') + '</td><td>' + pill(x) + '</td><td class="n num">' + x.trades + '</td>' +
+              '<td class="num">' + esc(x.phone || '—') + '</td><td>' + pill(x) + '</td>' +
+              '<td><span class="pill ' + (x.plan_effective === 'free' ? '' : x.on_trial ? 'warn' : 'acc') + '">' + esc(x.plan_name) + (x.on_trial && x.plan_effective !== 'free' ? ' trial' : '') + '</span>' +
+              (x.days_left != null ? ' <span class="small muted num">' + x.days_left + 'd</span>' : x.lifetime && x.role !== 'admin' ? ' <span class="small muted">no end</span>' : '') + '</td>' +
+              '<td class="n num">' + x.trades + '</td>' +
               '<td class="num small">' + esc(x.created_at) + '</td><td class="num small">' + esc(x.last_login || '—') + '</td><td>' + btns(x) + '</td></tr>';
           }).join('') + '</tbody></table></div><div id="admOut"></div></section>';
+        var apAll = $('#apAll', b);
+        if (apAll) apAll.onclick = function () {
+          if (!window.confirm('Approve all ' + pend + ' waiting accounts?')) return;
+          apAll.disabled = true;
+          T.adminApi('approve_all', {}).then(function (r) { T.toast(r.approved + ' approved'); S.adminPending = 0; T.renderShell(); AD.users(b, el); }).catch(function (er) { apAll.disabled = false; T.toast(er.message, true); });
+        };
+        S.adminPending = pend; S.payPending = j.pending_payments || 0; T.renderShell();
         var qt; $('#adQ', b).oninput = function () { var v = this.value; clearTimeout(qt); qt = setTimeout(function () { S.adq = v; AD.users(b, el); }, 250); };
         $$('[data-a]', b).forEach(function (btn) {
           btn.onclick = function () {
             var id = +btn.dataset.id, a = btn.dataset.a, x = all.find(function (z) { return z.id === id; }), p;
+            if (a === 'approve' && !x.email_verified && !window.confirm(x.name + ' has not confirmed ' + x.email + ' yet. Approve anyway? This also marks the email as confirmed.')) return;
             if (a === 'approve' || a === 'enable') p = T.adminApi('set_status', { id: id, status: 'active' });
             else if (a === 'disable') { if (!window.confirm('Disable ' + x.name + '? They are signed out and cannot sign in.')) return; p = T.adminApi('set_status', { id: id, status: 'disabled' }); }
             else if (a === 'promote') p = T.adminApi('set_role', { id: id, role: 'admin' });
             else if (a === 'demote') p = T.adminApi('set_role', { id: id, role: 'user' });
             else if (a === 'msg') { S.adtab = 'messages'; S.msgTo = String(id); T.render(); return; }
+            else if (a === 'plan') { T.setPlanModal(x, j.plans, function () { AD.users(b, el); }); return; }
             else if (a === 'reset') {
               p = T.adminApi('send_reset', { id: id }).then(function (r) {
                 if (r.link) $('#admOut').innerHTML = '<p class="notice" style="margin-top:12px">Email is not set up, so send this one-time link to ' + esc(x.name) + ' yourself (valid 24 h):<br><input class="num" readonly value="' + esc(r.link) + '" onclick="this.select()"></p>';

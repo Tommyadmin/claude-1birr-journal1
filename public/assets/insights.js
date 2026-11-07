@@ -103,7 +103,7 @@
     el.innerHTML =
       '<div class="page-head"><div><div class="eyebrow">' + T.fmtDate(T.todayStr(), { weekday: 'long', day: 'numeric', month: 'long' }) + '</div><h1>' + (hello ? 'Welcome back, ' + esc(hello) : 'Dashboard') + '</h1></div>' +
       '<div class="row">' + T.scopeSwitch() + periodSwitch(S.period) + '</div></div>' +
-      (pending ? '<a class="notice" href="#trades" id="revLink"><b>' + pending + ' synced trade' + (pending > 1 ? 's' : '') + ' to review.</b> Add your checklist, emotions and notes so they count in your analysis.</a>' : '') +
+      T.planBanner() + (pending ? '<a class="notice" href="#trades" id="revLink"><b>' + pending + ' synced trade' + (pending > 1 ? 's' : '') + ' to review.</b> Add your checklist, emotions and notes so they count in your analysis.</a>' : '') +
       (!S.trades.length ? '<div class="banner info">Start by logging your first trade, importing a CSV, or connecting MT5 in Settings.</div>' : '') +
       kpiBlock(a) +
       '<div class="grid g-main">' +
@@ -206,6 +206,7 @@
   S.atab = T.store('tj-atab') || 'overview';
   var ATABS = [['overview', 'Overview'], ['strategies', 'Strategies'], ['psychology', 'Psychology'], ['mistakes', 'Mistakes'], ['time', 'Sessions & time'], ['risk', 'Risk'], ['rules', 'Rules']];
   T.views.analytics = function (el) {
+    if (!T.can('analytics')) { el.innerHTML = '<div class="page-head"><div><h1>Analytics</h1></div></div>' + T.lockedPanel('analytics'); return; }
     var list = inPeriod(T.scoped(), S.period);
     el.innerHTML = '<div class="page-head"><div><h1>Analytics</h1><p>' + list.length + ' trades · ' + (S.scope === 'all' ? 'all accounts' : S.scope) + '</p></div><div class="row">' + T.scopeSwitch() + periodSwitch(S.period) + '</div></div>' +
       '<div class="tabs" role="tablist">' + ATABS.map(function (t) { return '<button class="tab" role="tab" data-at="' + t[0] + '" aria-selected="' + (S.atab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div>' +
@@ -350,6 +351,7 @@
     return [R.from || t.slice(0, 8) + '01', R.to || t];
   }
   T.views.reports = function (el) {
+    if (!T.can('reports')) { el.innerHTML = '<div class="page-head"><div><h1>Reports</h1></div></div>' + T.lockedPanel('reports'); return; }
     var rg = presetRange(R.preset), from = rg[0], to = rg[1];
     var list = T.scoped().filter(function (t) { return t.trade_date >= from && t.trade_date <= to && (!R.strategy || t.strategy === R.strategy); });
     var a = T.aggregate(list), s = S.site || {};
@@ -397,6 +399,7 @@
 
   // ================= PLAN & NOTES =================
   T.views.plan = function (el) {
+    if (!T.can('plan_notes')) { el.innerHTML = '<div class="page-head"><div><h1>Plan &amp; notes</h1></div></div>' + T.lockedPanel('plan_notes'); return; }
     var p = S.prefs, today = T.todayStr();
     var noteDays = Object.keys(S.notes).sort().reverse().slice(0, 30);
     el.innerHTML =

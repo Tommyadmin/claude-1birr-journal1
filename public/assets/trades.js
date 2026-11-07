@@ -35,7 +35,7 @@
 
     el.innerHTML =
       '<div class="page-head"><div><div class="eyebrow">' + T.fmtDate(ds, { weekday: 'long', day: 'numeric', month: 'long' }) + '</div><h1>Today</h1></div>' +
-      '<div class="num" style="font-size:22px;font-weight:600" id="clk">' + T.nowHM() + '</div></div>' +
+      '<div class="num" style="font-size:22px;font-weight:600" id="clk">' + T.nowHM() + '</div></div>' + T.planBanner() +
       '<div class="kpis">' +
       T.kpi('Trading window', win ? esc(win.name) + (win.active ? '' : ' (off)') : 'Closed', win && win.active ? '<span class="pill ok"><span class="dot"></span>You may trade</span>' : '<span class="pill"><span class="dot"></span>No window now</span>') +
       T.kpi('Losses today', st.L + (rules.max_losses_day ? ' / ' + rules.max_losses_day : ''), rules.max_losses_day && st.L === rules.max_losses_day - 1 ? '<span class="pill warn">One more = stop</span>' : '') +
@@ -135,7 +135,7 @@
     var ag = T.aggregate(list.slice().sort(sorters.old));
     var p = S.prefs;
     el.innerHTML =
-      '<div class="page-head"><div><h1>Trades</h1><p>' + all.length + ' trades in ' + (S.scope === 'all' ? 'all accounts' : S.scope + ' account') + '</p></div>' +
+      '<div class="page-head"><div><h1>Trades</h1><p>' + all.length + ' trades in ' + (S.scope === 'all' ? 'all accounts' : S.scope + ' account') + ' ' + T.tradeLimitNote() + '</p></div>' +
       '<div class="row">' + T.scopeSwitch() + '<button class="btn" id="impBtn" type="button">' + T.icon('upload') + 'Import</button>' +
       '<a class="btn" id="expBtn" href="#">' + T.icon('download') + 'Export CSV</a><button class="btn primary" type="button" data-new2>' + T.icon('plus') + 'New trade</button></div></div>' +
       '<section class="panel"><div class="filters">' +
@@ -168,7 +168,7 @@
     $('#fClear', el).onclick = function () { Object.keys(F).forEach(function (k) { F[k] = typeof F[k] === 'boolean' ? false : ''; }); F.sort = 'new'; T.render(); };
     var more = $('#more', el); if (more) more.onclick = function () { showN += 100; T.render(); };
     $('#expBtn', el).href = '/api/app?action=export' + (F.from ? '&from=' + F.from : '') + (F.to ? '&to=' + F.to : '');
-    $('#impBtn', el).onclick = openImport;
+    $('#impBtn', el).onclick = function () { if (!T.can('import')) { T.toast('CSV and Excel import is part of a paid plan.', true); location.hash = '#billing'; return; } openImport(); };
     $('[data-new2]', el).onclick = function () { T.openTrade(null); };
     T.bindScope(el);
     T.bindRows(el);
@@ -265,9 +265,9 @@
       '<label class="f s4">Tags <span class="hint">comma separated</span><input id="tTags" value="' + v((t.tags || []).join(', ')) + '" placeholder="a-plus, news, scalp"></label>' +
       '</div></div>' +
 
-      '<div class="sect"><h3>Screenshots</h3>' +
+      '<div class="sect"><h3>Screenshots</h3>' + (T.can('screenshots') ? '' : '<p class="notice" style="margin:0">Chart screenshots are part of a paid plan. <a href="#billing" id="upg">See plans</a></p>') +
       '<div class="shots" id="tShots">' + t.shots.map(function (s) { return '<div class="shot"><img src="/api/media?type=shot&id=' + s.id + '" alt="' + s.kind + ' screenshot" loading="lazy"><span>' + s.kind + '</span><button type="button" data-del="' + s.id + '" aria-label="Delete screenshot">×</button></div>'; }).join('') + '</div>' +
-      '<div class="fg"><label class="f s2">Add “before” charts<input id="fBefore" type="file" accept="image/*" multiple></label>' +
+      '<div class="fg"' + (T.can('screenshots') ? '' : ' hidden') + '><label class="f s2">Add “before” charts<input id="fBefore" type="file" accept="image/*" multiple></label>' +
       '<label class="f s2">Add “after” charts<input id="fAfter" type="file" accept="image/*" multiple></label></div>' +
       '<div class="uplist" id="upList"></div></div>' +
       '</div>' +
@@ -280,6 +280,7 @@
     var saveLabel = $('#tfSave').textContent;
     var close = function () { dlg.close(); };
     $('#tfX').onclick = close; $('#tfCancel').onclick = close;
+    var upg = $('#upg'); if (upg) upg.onclick = close;
 
     // partial fills
     var parts = (t.partials || []).slice();
@@ -413,7 +414,10 @@
           else { btn.disabled = false; btn.textContent = saveLabel; t.id = j.id; isNew = false; }
           T.render();
         });
-      }).catch(function (err) { T.toast(err.message, true); btn.disabled = false; btn.textContent = saveLabel; });
+      }).catch(function (err) {
+        T.toast(err.message, true); btn.disabled = false; btn.textContent = saveLabel;
+        if (err.code === 'upgrade') { close(); location.hash = '#billing'; }
+      });
     };
     dlg.showModal();
     dlg.scrollTop = 0;

@@ -70,10 +70,13 @@
   </section>
 
   <!-- after sign-up -->
-  <section data-panel="check_email" class="stack" hidden>
-    <p class="info">We sent a confirmation link to <b id="ceEmail"></b>. Open it to confirm your email. Check your spam folder if you don't see it.</p>
-    <button class="btn" id="ceResend" type="button">Send it again</button>
-    <div class="links"><a data-go="signin">Back to sign in</a></div>
+  <section data-panel="otp" class="stack" hidden>
+    <p class="info">We sent a 6-digit code to <b id="ceEmail"></b>. Enter it below to verify your email. Check your spam folder if you don't see it.</p>
+    <form id="fOtp" class="stack">
+      <label>Verification code <input id="otpCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="123456" style="font:600 24px var(--f-num);letter-spacing:.35em;text-align:center"></label>
+      <button class="btn primary" type="submit">Verify and continue</button>
+    </form>
+    <div class="links"><button class="linkbtn" id="ceResend" type="button">Send a new code</button><a data-go="register">Use a different email</a></div>
   </section>
 
   <!-- waiting for approval -->
@@ -149,7 +152,7 @@
     $('ok').hidden = $('err').hidden = true;
     if (text) { var e = $(type === 'ok' ? 'ok' : 'err'); e.textContent = text; e.hidden = false; }
   }
-  var TITLES = { signin: 'Sign in', register: 'Create your account', check_email: 'Check your email', pending: 'Almost there', phone: 'Add your phone',
+  var TITLES = { signin: 'Sign in', register: 'Create your account', otp: 'Verify your email', check_email: 'Verify your email', pending: 'Almost there', phone: 'Add your phone',
     forgot: 'Reset your password', reset: 'Choose a new password', setup: 'Set up your journal' };
   var regOpen = true;
   function show(panel) {
@@ -171,7 +174,7 @@
       headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return { error: 'Server error (' + r.status + ')' }; }).then(function (j) {
-        if (!r.ok || j.error) { var er = new Error(j.error || 'Request failed'); er.code = j.code; throw er; }
+        if (!r.ok || j.error) { var er = new Error(j.error || 'Request failed'); er.code = j.code; er.email = j.email; throw er; }
         return j;
       });
     });
@@ -180,12 +183,15 @@
     if (j.next === 'app') location.replace('/');
     else if (j.next === 'phone') show('phone');
     else if (j.next === 'pending') show('pending');
-    else if (j.next === 'check_email') show('check_email');
+    else if (j.next === 'otp' || j.next === 'check_email') { if (j.email) $('ceEmail').textContent = j.email; show('otp'); cooldown(j.wait || 60); }
   }
   function bind(formId, fn) {
     $(formId).addEventListener('submit', function (e) {
       e.preventDefault(); msg(); var b = this.querySelector('button[type=submit]'); b.disabled = true;
-      Promise.resolve(fn()).catch(function (err) { msg('err', err.message); if (err.code === 'unverified') $('resendBtn').hidden = false; })
+      Promise.resolve(fn()).catch(function (err) {
+        if (err.code === 'unverified') { $('ceEmail').textContent = err.email || $('siEmail').value; show('otp'); msg('ok', 'Enter the code we just emailed you to finish verifying your account.'); cooldown(60); return; }
+        msg('err', err.message);
+      })
         .then(function () { b.disabled = false; });
     });
   }
@@ -223,7 +229,7 @@
     regOpen = site.registration_open !== false;
     if (!regOpen) document.querySelectorAll('[data-go="register"]').forEach(function (a) { a.hidden = true; });
     var hint = document.querySelector('[data-panel="register"] .hint');
-    if (hint && site.require_approval === false) hint.textContent = 'We send a link to confirm your email.';
+    if (hint) hint.textContent = 'We email you a 6-digit code to verify your address' + (site.require_approval ? '. New accounts are approved by the owner.' : ', then your free trial starts.');
   }
 
   call('status').then(function (s) {
@@ -247,9 +253,24 @@
   $('resendBtn').onclick = function () { call('resend_verify', { email: $('siEmail').value }).then(function () { msg('ok', 'Sent. Check your inbox.'); $('resendBtn').hidden = true; }); };
   bind('fRegister', function () {
     return call('register', { name: $('rgName').value, email: $('rgEmail').value, phone: phoneOf('rg'), password: $('rgPw').value, password2: $('rgPw2').value, website: $('rgWeb').value, terms: $('rgTerms').checked })
-      .then(function (j) { $('ceEmail').textContent = $('rgEmail').value; next(j); });
+      .then(function (j) { $('ceEmail').textContent = j.email || $('rgEmail').value; next(j); });
   });
-  $('ceResend').onclick = function () { call('resend_verify', { email: $('ceEmail').textContent }).then(function () { msg('ok', 'Sent again.'); }); };
+  var cdT;
+  function cooldown(sec) {
+    var b = $('ceResend'); clearInterval(cdT); b.disabled = true;
+    var tick = function () { if (sec <= 0) { clearInterval(cdT); b.disabled = false; b.textContent = 'Send a new code'; return; } b.textContent = 'Send a new code in ' + sec + 's'; sec--; };
+    tick(); cdT = setInterval(tick, 1000);
+  }
+  $('ceResend').onclick = function () {
+    call('resend_verify', { email: $('ceEmail').textContent }).then(function () { msg('ok', 'A new code is on its way.'); cooldown(60); }).catch(function (e) { msg('err', e.message); });
+  };
+  bind('fOtp', function () {
+    return call('verify_otp', { email: $('ceEmail').textContent, code: $('otpCode').value.replace(/\D/g, '') }).then(function (j) {
+      if (j.next === 'app') msg('ok', 'Email verified. Starting your free trial…');
+      next(j);
+    }).catch(function (e) { $('otpCode').select(); throw e; });
+  });
+  $('otpCode').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); if (this.value.length === 6) $('fOtp').requestSubmit(); });
   bind('fPhone', function () { return call('complete_phone', { phone: phoneOf('ph'), terms: $('phTerms').checked }).then(next); });
   bind('fForgot', function () {
     return call('forgot', { email: $('fgEmail').value }).then(function () { show('signin'); msg('ok', 'If an account uses that email, a reset link is on its way. It works for 1 hour.'); });

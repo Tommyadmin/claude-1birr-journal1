@@ -1,17 +1,33 @@
-// /api/auth?action=status|setup|register|verify|resend_verify|login|complete_phone|forgot|reset|logout
+// /api/auth?action=status|setup|register|verify_otp|resend_verify|login|complete_phone|forgot|reset|logout (+ legacy verify link)
 import { q, ensureSchema, installFresh } from '../lib/db.js';
 import {
   secret, safeEqual, hashPassword, verifyPassword, clearSession, getAuth, setSession,
-  getPreUser, makeToken, useToken, peekToken, appUrl,
+  getPreUser, makeToken, useToken, peekToken, appUrl, makeOtp, checkOtp, otpCooldown,
 } from '../lib/auth.js';
+import { startTrial } from '../lib/plans.js';
 import { mails } from '../lib/mail.js';
 import { normEmail, validEmail, normPhone, cleanName, newUserDefaults, notifyAdmins, finishLogin, approvalRequired } from '../lib/users.js';
 import { getSite, publicSite } from '../lib/site.js';
 import { send, fail, query, readJson } from '../lib/util.js';
 
-async function sendVerify(req, user) {
-  const t = await makeToken(user.id, 'verify', 24 * 3600 * 1000);
-  return mails.verify(user, `${appUrl(req)}/api/auth?action=verify&token=${t}`);
+// Email a fresh 6-digit code unless one was sent in the last minute. Returns seconds to wait.
+async function sendOtp(user) {
+  const wait = await otpCooldown(user.id);
+  if (wait > 0) return wait;
+  const code = await makeOtp(user.id);
+  await mails.otp(user, code);
+  return 0;
+}
+
+// After the email is proven: activate (unless approval is required), start the trial, tell admins.
+async function afterVerified(req, uid) {
+  let r = await q('UPDATE users SET email_verified = true WHERE id = $1 RETURNING *', [uid]);
+  if (r[0].status === 'pending' && !(await approvalRequired()) && r[0].phone) {
+    r = await q(`UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`, [uid]);
+  }
+  if (r[0].status === 'active') await startTrial(uid);
+  await notifyAdmins(req, r[0]);
+  return (await q('SELECT * FROM users WHERE id = $1', [uid]))[0];
 }
 
 export default async function handler(req, res) {
@@ -44,12 +60,7 @@ export default async function handler(req, res) {
       const uid = await useToken(qs.get('token'), 'verify');
       res.statusCode = 302;
       if (!uid) { res.setHeader('Location', '/login.html?msg=link_invalid'); return res.end(); }
-      let r = await q('UPDATE users SET email_verified = true WHERE id = $1 RETURNING *', [uid]);
-      if (r[0].status === 'pending' && !(await approvalRequired()) && r[0].phone) {
-        r = await q(`UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`, [uid]);
-      }
-      const u = r[0];
-      await notifyAdmins(req, u);
+      const u = await afterVerified(req, uid);
       res.setHeader('Location', '/login.html?msg=' + (u.status === 'active' ? 'verified' : 'verified_pending'));
       return res.end();
     }
@@ -71,6 +82,7 @@ export default async function handler(req, res) {
       const r = await q(`INSERT INTO users (email, name, phone, password_hash, email_verified, status, role, last_login, terms_accepted_at)
         VALUES ($1,$2,$3,$4,true,'active','admin',now(),now()) RETURNING *`, [email, name, phone, hashPassword(d.password)]);
       await newUserDefaults(r[0].id, d.balance);
+      await q(`UPDATE users SET plan = 'ultimate', plan_expires_at = NULL, trial_used = true WHERE id = $1`, [r[0].id]);
       setSession(req, res, r[0]);
       return send(res, 200, { ok: true, next: 'app' });
     }
@@ -78,7 +90,7 @@ export default async function handler(req, res) {
     if (!(await ensureSchema())) return fail(res, 409, 'The journal is not set up yet.');
 
     if (action === 'register') {
-      if (d.website) return send(res, 200, { ok: true, next: 'check_email' }); // bot trap
+      if (d.website) return send(res, 200, { ok: true, next: 'otp' }); // bot trap
       if ((await getSite()).registration_open === '0') return fail(res, 403, 'Sign-up is closed right now.');
       if (!d.terms) return fail(res, 422, 'Please accept the Terms and Conditions and Privacy Policy.');
       const email = normEmail(d.email), phone = normPhone(d.phone), name = cleanName(d.name);
@@ -94,22 +106,36 @@ export default async function handler(req, res) {
           // never confirmed: the newest sign-up wins, so only the real email owner can finish it
           const r2 = await q('UPDATE users SET name = $2, phone = $3, password_hash = $4, pw_version = pw_version + 1, terms_accepted_at = now() WHERE id = $1 RETURNING *',
             [u.id, name, phone, hashPassword(d.password)]);
-          await sendVerify(req, r2[0]);
-          return send(res, 200, { ok: true, next: 'check_email' });
+          const wait = await sendOtp(r2[0]);
+          return send(res, 200, { ok: true, next: 'otp', email, wait });
         }
         return fail(res, 409, 'An account with this email already exists. Sign in, or use "Forgot password".');
       }
       const r = await q(`INSERT INTO users (email, name, phone, password_hash, terms_accepted_at) VALUES ($1,$2,$3,$4,now()) RETURNING *`,
         [email, name, phone, hashPassword(d.password)]);
       await newUserDefaults(r[0].id, 0);
-      await sendVerify(req, r[0]);
-      return send(res, 200, { ok: true, next: 'check_email' });
+      await sendOtp(r[0]);
+      return send(res, 200, { ok: true, next: 'otp', email });
     }
 
     if (action === 'resend_verify') {
       const r = await q('SELECT * FROM users WHERE email = $1', [normEmail(d.email)]);
-      if (r.length && !r[0].email_verified) await sendVerify(req, r[0]);
+      let wait = 0;
+      if (r.length && !r[0].email_verified) wait = await sendOtp(r[0]);
+      if (wait) return fail(res, 429, `Wait ${wait} seconds before asking for a new code.`);
       return send(res, 200, { ok: true });
+    }
+
+    if (action === 'verify_otp') {
+      const r = await q('SELECT * FROM users WHERE email = $1', [normEmail(d.email)]);
+      const u = r[0];
+      if (!u) return fail(res, 404, 'No sign-up found for this email. Create your account again.');
+      if (u.email_verified) return finishLogin(req, res, u);
+      const c = await checkOtp(u.id, d.code);
+      if (c.result === 'wrong') return fail(res, 422, `That code is not right. ${c.left} ${c.left === 1 ? 'try' : 'tries'} left.`);
+      if (c.result === 'locked') return fail(res, 429, 'Too many wrong codes. Ask for a new code.');
+      if (c.result === 'expired') return fail(res, 410, 'This code has expired. Ask for a new code.');
+      return finishLogin(req, res, await afterVerified(req, u.id));
     }
 
     if (action === 'login') {
@@ -131,6 +157,7 @@ export default async function handler(req, res) {
         await q('UPDATE users SET fail_count = $2 WHERE id = $1', [u.id, fails]);
         return fail(res, 401, bad);
       }
+      if (!u.email_verified) await sendOtp(u);   // a fresh code is waiting when they reach the code screen
       return finishLogin(req, res, u);
     }
 
@@ -142,6 +169,7 @@ export default async function handler(req, res) {
       if (u.status === 'pending' && !d.terms && !u.terms_accepted_at) return fail(res, 422, 'Please accept the Terms and Conditions and Privacy Policy.');
       let r = await q('UPDATE users SET phone = $2, terms_accepted_at = COALESCE(terms_accepted_at, now()) WHERE id = $1 RETURNING *', [u.id, phone]);
       if (r[0].status === 'pending' && !(await approvalRequired())) r = await q(`UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`, [u.id]);
+      if (r[0].status === 'active' && r[0].email_verified) await startTrial(u.id);
       await notifyAdmins(req, r[0]);
       return finishLogin(req, res, r[0]);
     }
@@ -165,9 +193,9 @@ export default async function handler(req, res) {
       const uid = await useToken(d.token, 'reset');
       if (!uid) return fail(res, 410, 'This reset link has expired or was already used. Ask for a new one.');
       // a working reset link also proves the email address
-      const r = await q(`UPDATE users SET password_hash = $2, pw_version = pw_version + 1, email_verified = true, fail_count = 0, lock_until = 0
+      const r = await q(`UPDATE users SET password_hash = $2, pw_version = pw_version + 1, fail_count = 0, lock_until = 0
         WHERE id = $1 RETURNING *`, [uid, hashPassword(d.password)]);
-      return finishLogin(req, res, r[0]);
+      return finishLogin(req, res, r[0].email_verified ? r[0] : await afterVerified(req, uid));
     }
 
     return fail(res, 400, 'Unknown action');

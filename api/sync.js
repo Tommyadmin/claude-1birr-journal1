@@ -3,6 +3,7 @@
 import { q, ensureSchema, setUS } from '../lib/db.js';
 import { send, fail, readJson, localParts } from '../lib/util.js';
 import { getPrefs, windowOf, guessInstrument } from '../lib/prefs.js';
+import { entitlements } from '../lib/plans.js';
 
 const num = (v) => (Number.isFinite(Number(v)) && Number(v) !== 0 ? Number(v) : null);
 
@@ -29,11 +30,20 @@ export default async function handler(req, res) {
       return fail(res, 403, 'Wrong sync key, or the account is not active. Copy the key again from Settings > MT5 sync.');
     }
     const uid = owner[0].user_id;
+    const ent = await entitlements((await q('SELECT * FROM users WHERE id = $1', [uid]))[0]);
+    if (!ent.features.mt5) return fail(res, 402, `Your ${ent.name} plan does not include MT5 sync. Upgrade on the Subscription page.`);
 
     const d = await readJson(req);
     const account = String(d.account || '').replace(/[^0-9A-Za-z_-]/g, '').slice(0, 32);
     if (!account) return fail(res, 422, 'Missing account number');
     const positions = Array.isArray(d.positions) ? d.positions : [];
+    if (ent.limits.mt5_accounts) {
+      const accts = await q(`SELECT DISTINCT mt5_account FROM trades WHERE user_id = $1 AND mt5_account IS NOT NULL`, [uid]);
+      const known = accts.map((x) => x.mt5_account);
+      if (!known.includes(account) && known.length >= ent.limits.mt5_accounts) {
+        return fail(res, 402, `Your ${ent.name} plan allows ${ent.limits.mt5_accounts} MT5 account${ent.limits.mt5_accounts > 1 ? 's' : ''}. Upgrade to sync more.`);
+      }
+    }
     if (positions.length > 500) return fail(res, 413, 'Send at most 500 positions per request');
 
     const prefs = await getPrefs(uid);

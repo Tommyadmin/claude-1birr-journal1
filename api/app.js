@@ -1,10 +1,12 @@
 // /api/app?action=...  The journal's data API (sign-in required; every query is limited to the signed-in user).
 import crypto from 'node:crypto';
 import { q, getUS, setUS } from '../lib/db.js';
-import { getAuth, checkCsrf, csrfFor, verifyPassword, hashPassword, setSession, clearSession } from '../lib/auth.js';
+import { getAuth, checkCsrf, csrfFor, verifyPassword, hashPassword, setSession, clearSession, appUrl } from '../lib/auth.js';
 import { normPhone, cleanName } from '../lib/users.js';
 import { getPrefs, savePrefs, windowOf, guessInstrument } from '../lib/prefs.js';
 import { getSite, publicSite } from '../lib/site.js';
+import { getPlans, entitlements, planError, getPaymentConfig, trialConfig, FEATURES, PLAN_IDS } from '../lib/plans.js';
+import { mails } from '../lib/mail.js';
 import { send, fail, query, readBody, readJson, localParts, numOrNull, clip, strList } from '../lib/util.js';
 
 const MAX_IMG = 4 * 1024 * 1024; // Vercel functions accept bodies up to about 4.5 MB
@@ -147,6 +149,11 @@ export default async function handler(req, res) {
     const post = (fn) => (req.method === 'POST' ? fn() : fail(res, 405, 'POST only'));
     const prefs = await getPrefs(uid);
     const now = localParts(new Date(), prefs.timezone);
+    const plans = await getPlans();
+    const ent = await entitlements(user, plans);
+    const need = (f) => { if (!ent.features[f]) throw planError(f, ent); };
+    // trades added this calendar month (journal time zone), for the plan's monthly limit
+    const monthCount = async () => (await q(`SELECT count(*)::int AS n FROM trades WHERE user_id = $1 AND created_at >= $2::date`, [uid, now.date.slice(0, 8) + '01']))[0].n;
 
     switch (action) {
       case 'bootstrap': {
@@ -170,6 +177,8 @@ export default async function handler(req, res) {
           ts: Math.floor(Date.now() / 1000),
           tz_offset: now.offset,
           csrf: csrfFor(session),
+          ent, trades_this_month: await monthCount(),
+          admin_pending: user.role === 'admin' ? (await q(`SELECT count(*)::int AS n FROM users WHERE status = 'pending'`))[0].n : 0,
           mt5: {
             key: await getUS(uid, 'mt5_key', ''),
             last_sync: await getUS(uid, 'mt5_last_sync', ''),
@@ -179,9 +188,12 @@ export default async function handler(req, res) {
         });
       }
 
-      case 'save_trade': return post(async () => {
+      case 'save_trade': return await post(async () => {
         const d = await readJson(req);
         let id = parseInt(d.id, 10) || 0;
+        if (!id && ent.limits.trades_month && (await monthCount()) >= ent.limits.trades_month) {
+          return send(res, 402, { error: `Your ${ent.name} plan allows ${ent.limits.trades_month} new trades a month. Upgrade on the Subscription page to add more.`, code: 'upgrade' });
+        }
         const c = cleanTrade(d, prefs);
         if (c.error) return fail(res, 422, c.error);
         const n = FIELDS.length;
@@ -200,7 +212,8 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, id });
       });
 
-      case 'import_trades': return post(async () => {
+      case 'import_trades': return await post(async () => {
+        need('import');
         const d = await readJson(req);
         const rows = Array.isArray(d.rows) ? d.rows.slice(0, 300) : [];
         let inserted = 0, duplicates = 0;
@@ -220,14 +233,14 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, inserted, duplicates, errors });
       });
 
-      case 'toggle_favorite': return post(async () => {
+      case 'toggle_favorite': return await post(async () => {
         const d = await readJson(req);
         const r = await q('UPDATE trades SET favorite = 1 - favorite WHERE id = $1 AND user_id = $2 RETURNING favorite', [parseInt(d.id, 10) || 0, uid]);
         if (!r.length) return fail(res, 404, 'Trade not found.');
         return send(res, 200, { ok: true, favorite: r[0].favorite });
       });
 
-      case 'delete_trade': return post(async () => {
+      case 'delete_trade': return await post(async () => {
         const d = await readJson(req);
         const id = parseInt(d.id, 10) || 0;
         const t = await q('SELECT mt5_account, mt5_position FROM trades WHERE id = $1 AND user_id = $2', [id, uid]);
@@ -241,7 +254,8 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true });
       });
 
-      case 'upload': return post(async () => {
+      case 'upload': return await post(async () => {
+        need('screenshots');
         const tradeId = parseInt(qs.get('trade_id'), 10) || 0;
         const kind = qs.get('kind') === 'after' ? 'after' : 'before';
         const t = await q('SELECT id FROM trades WHERE id = $1 AND user_id = $2', [tradeId, uid]);
@@ -256,7 +270,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, id: r[0].id, kind });
       });
 
-      case 'delete_shot': return post(async () => {
+      case 'delete_shot': return await post(async () => {
         const d = await readJson(req);
         const r = await q(`DELETE FROM screenshots s USING trades t
           WHERE s.id = $1 AND t.id = s.trade_id AND t.user_id = $2 RETURNING s.url`, [parseInt(d.id, 10) || 0, uid]);
@@ -264,7 +278,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true });
       });
 
-      case 'save_settings': return post(async () => {
+      case 'save_settings': return await post(async () => {
         const d = await readJson(req);
         const n = (v) => v !== undefined && v !== '' && Number.isFinite(Number(v));
         if (n(d.start_balance)) await setUS(uid, 'start_balance', Math.max(0, Number(d.start_balance)));
@@ -279,13 +293,13 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, settings: await loadSettings(uid) });
       });
 
-      case 'save_prefs': return post(async () => {
+      case 'save_prefs': return await post(async () => {
         const d = await readJson(req);
         const merged = { ...prefs, ...(d.prefs && typeof d.prefs === 'object' ? d.prefs : {}) };
         return send(res, 200, { ok: true, prefs: await savePrefs(uid, merged) });
       });
 
-      case 'save_profile': return post(async () => {
+      case 'save_profile': return await post(async () => {
         const d = await readJson(req);
         const name = cleanName(d.name), phone = normPhone(d.phone);
         if (!name) return fail(res, 422, 'Enter your name.');
@@ -300,7 +314,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, user: publicUser(r[0], await avatarVersion(uid)) });
       });
 
-      case 'upload_avatar': return post(async () => {
+      case 'upload_avatar': return await post(async () => {
         const buf = await readBody(req, 1.5 * 1024 * 1024);
         const mime = sniffImage(buf);
         if (!mime || mime === 'image/gif') return fail(res, 422, 'Use a JPG, PNG or WEBP photo.');
@@ -309,7 +323,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, avatar: '/api/media?type=avatar&v=' + (await avatarVersion(uid)) });
       });
 
-      case 'delete_avatar': return post(async () => {
+      case 'delete_avatar': return await post(async () => {
         await q('DELETE FROM avatars WHERE user_id = $1', [uid]);
         return send(res, 200, { ok: true });
       });
@@ -317,7 +331,7 @@ export default async function handler(req, res) {
       case 'inbox':
         return send(res, 200, { inbox: await inbox(uid, prefs.timezone) });
 
-      case 'mark_read': return post(async () => {
+      case 'mark_read': return await post(async () => {
         const d = await readJson(req);
         if (d.all) {
           await q(`INSERT INTO notification_reads (notification_id, user_id)
@@ -335,7 +349,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, inbox: await inbox(uid, prefs.timezone) });
       });
 
-      case 'save_note': return post(async () => {
+      case 'save_note': return await post(async () => {
         const d = await readJson(req);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(d.day || '')) return fail(res, 422, 'Bad date.');
         const text = clip(d.text, 10000);
@@ -344,7 +358,7 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true });
       });
 
-      case 'delete_account': return post(async () => {
+      case 'delete_account': return await post(async () => {
         const d = await readJson(req);
         if (d.confirm !== 'DELETE') return fail(res, 422, 'Type DELETE to confirm.');
         if (user.password_hash && !verifyPassword(d.password || '', user.password_hash)) return fail(res, 422, 'Password is wrong.');
@@ -359,7 +373,8 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true });
       });
 
-      case 'mt5_key': return post(async () => {
+      case 'mt5_key': return await post(async () => {
+        need('mt5');
         const key = crypto.randomBytes(20).toString('hex');
         await setUS(uid, 'mt5_key', key);
         return send(res, 200, { ok: true, key });
@@ -387,10 +402,61 @@ export default async function handler(req, res) {
         return send(res, 200, '﻿' + lines.join('\r\n'), 'text/csv; charset=utf-8');
       }
 
+      // ---------- subscription ----------
+      case 'billing': {
+        const pays = await q(`SELECT id, plan, period, method, amount::float8 AS amount, currency, reference, status, admin_note,
+            to_char((created_at AT TIME ZONE $2), 'YYYY-MM-DD HH24:MI') AS created_at, (proof IS NOT NULL) AS has_proof
+          FROM payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [uid, prefs.timezone]);
+        return send(res, 200, { plans, features: FEATURES, payment: await getPaymentConfig(), ent, trial: await trialConfig(), payments: pays });
+      }
+
+      case 'submit_payment': return await post(async () => {
+        const d = await readJson(req);
+        const plan = ['starter', 'pro', 'ultimate'].includes(d.plan) ? d.plan : null;
+        const period = d.period === 'year' ? 'year' : 'month';
+        const method = d.method === 'crypto' ? 'crypto' : d.method === 'telebirr' ? 'telebirr' : null;
+        if (!plan || !method) return fail(res, 422, 'Choose a plan and a payment method.');
+        const cfg = await getPaymentConfig();
+        if (!cfg[method].enabled) return fail(res, 422, 'This payment method is not available right now.');
+        const ref = clip(d.reference, 120).replace(/[<>]/g, '');
+        if (ref.length < 4) return fail(res, 422, method === 'crypto' ? 'Enter the transaction hash (TxID).' : 'Enter the telebirr transaction number.');
+        const dup = await q(`SELECT 1 FROM payments WHERE lower(reference) = lower($1) AND status <> 'rejected' LIMIT 1`, [ref]);
+        if (dup.length) return fail(res, 409, 'This transaction was already submitted.');
+        const open = await q(`SELECT count(*)::int AS n FROM payments WHERE user_id = $1 AND status = 'pending'`, [uid]);
+        if (open[0].n >= 3) return fail(res, 429, 'You have 3 payments waiting for review. Wait until they are checked.');
+        const p = plans[plan];
+        const amount = method === 'telebirr' && (period === 'year' ? p.price_year_etb : p.price_month_etb)
+          ? (period === 'year' ? p.price_year_etb : p.price_month_etb) : (period === 'year' ? p.price_year : p.price_month);
+        const currency = method === 'telebirr' && (period === 'year' ? p.price_year_etb : p.price_month_etb) ? 'ETB' : 'USD';
+        const coin = method === 'crypto' ? clip(d.coin, 30).replace(/[<>]/g, '') : '';
+        const r = await q(`INSERT INTO payments (user_id, plan, period, method, amount, currency, reference, payer, note)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [uid, plan, period, method, amount, currency, ref, clip(d.payer, 80).replace(/[<>]/g, ''), [coin, clip(d.note, 500).replace(/[<>]/g, '')].filter(Boolean).join(' · ')]);
+        const admins = await q(`SELECT email FROM users WHERE role = 'admin' AND status = 'active'`);
+        const list = new Set(admins.map((a) => a.email)); if (process.env.ADMIN_EMAIL) list.add(String(process.env.ADMIN_EMAIL).toLowerCase());
+        for (const e of list) {
+          await mails.subscription({ email: e, name: 'admin' }, `Payment to review: ${user.name}`,
+            `<p><b>${user.name}</b> (${user.email}) paid for <b>${p.name}</b> (${period === 'year' ? 'yearly' : 'monthly'}) with ${method}.</p><p>Amount: ${amount} ${currency}<br>Reference: ${ref}</p>`, appUrl(req) + '/#admin');
+        }
+        return send(res, 200, { ok: true, id: r[0].id });
+      });
+
+      case 'upload_proof': return await post(async () => {
+        const id = parseInt(qs.get('id'), 10) || 0;
+        const pr = await q(`SELECT id FROM payments WHERE id = $1 AND user_id = $2 AND status = 'pending'`, [id, uid]);
+        if (!pr.length) return fail(res, 404, 'Payment not found.');
+        const buf = await readBody(req, MAX_IMG);
+        const mime = sniffImage(buf);
+        if (!mime) return fail(res, 422, 'Upload the screenshot as JPG, PNG or WEBP.');
+        await q('UPDATE payments SET proof = $2, proof_mime = $3 WHERE id = $1', [id, buf, mime]);
+        return send(res, 200, { ok: true });
+      });
+
       default:
         return fail(res, 400, 'Unknown action');
     }
   } catch (e) {
+    if (e.code === 'upgrade') return send(res, 402, { error: e.message, code: 'upgrade' });
     console.error(e);
     return fail(res, e.status || 500, e.status ? e.message : 'Server error. Check the Vercel function logs.');
   }
