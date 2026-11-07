@@ -1,16 +1,35 @@
-// /api/auth?action=status|setup|login|logout
-import { getSetting, setSetting, createSchema } from '../lib/db.js';
-import { secret, safeEqual, hashPassword, verifyPassword, setSession, clearSession, getSession } from '../lib/auth.js';
-import { send, fail, query, readJson, localParts } from '../lib/util.js';
+// /api/auth?action=status|setup|register|verify|resend_verify|login|complete_phone|forgot|reset|logout
+import { q, ensureSchema, installFresh } from '../lib/db.js';
+import {
+  secret, safeEqual, hashPassword, verifyPassword, clearSession, getAuth, setSession,
+  getPreUser, makeToken, useToken, peekToken, appUrl,
+} from '../lib/auth.js';
+import { mails } from '../lib/mail.js';
+import { normEmail, validEmail, normPhone, cleanName, newUserDefaults, notifyAdmins, finishLogin, approvalRequired } from '../lib/users.js';
+import { getSite, publicSite } from '../lib/site.js';
+import { send, fail, query, readJson } from '../lib/util.js';
+
+async function sendVerify(req, user) {
+  const t = await makeToken(user.id, 'verify', 24 * 3600 * 1000);
+  return mails.verify(user, `${appUrl(req)}/api/auth?action=verify&token=${t}`);
+}
 
 export default async function handler(req, res) {
   try {
-    const action = query(req).get('action') || '';
+    const qs = query(req);
+    const action = qs.get('action') || '';
 
     if (action === 'status') {
-      const installed = !!(await getSetting('password_hash'));
-      const s = installed ? await getSession(req) : null;
-      return send(res, 200, { installed, logged_in: !!s });
+      const installed = (await ensureSchema()) && (await q('SELECT 1 FROM users LIMIT 1')).length > 0;
+      const auth = installed ? await getAuth(req) : null;
+      const pre = installed && !auth ? await getPreUser(req) : null;
+      return send(res, 200, {
+        installed, logged_in: !!auth,
+        google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+        needs_phone: !!(pre && !pre.phone),
+        email_enabled: !!process.env.RESEND_API_KEY,
+        site: publicSite(await getSite()),
+      });
     }
 
     if (action === 'logout') {
@@ -20,49 +39,135 @@ export default async function handler(req, res) {
       return res.end();
     }
 
+    if (action === 'verify') {
+      await ensureSchema();
+      const uid = await useToken(qs.get('token'), 'verify');
+      res.statusCode = 302;
+      if (!uid) { res.setHeader('Location', '/login.html?msg=link_invalid'); return res.end(); }
+      let r = await q('UPDATE users SET email_verified = true WHERE id = $1 RETURNING *', [uid]);
+      if (r[0].status === 'pending' && !(await approvalRequired()) && r[0].phone) {
+        r = await q(`UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`, [uid]);
+      }
+      const u = r[0];
+      await notifyAdmins(req, u);
+      res.setHeader('Location', '/login.html?msg=' + (u.status === 'active' ? 'verified' : 'verified_pending'));
+      return res.end();
+    }
+
     if (req.method !== 'POST') return fail(res, 405, 'POST only');
     const d = await readJson(req);
 
     if (action === 'setup') {
-      if (await getSetting('password_hash')) return fail(res, 409, 'Already set up. Sign in instead.');
+      const exists = (await ensureSchema()) && (await q('SELECT 1 FROM users LIMIT 1')).length > 0;
+      if (exists) return fail(res, 409, 'Already set up. Sign in instead.');
       if (!safeEqual(String(d.code || '').trim(), secret())) return fail(res, 403, 'The setup code does not match APP_SECRET in your Vercel settings.');
-      const pw = String(d.password || '');
-      if (pw.length < 8) return fail(res, 422, 'Use a password with at least 8 characters.');
-      if (pw !== String(d.password2 || '')) return fail(res, 422, 'The two passwords do not match.');
-      const bal = Math.max(0, Number(d.balance) || 0);
-      await createSchema();
-      await setSetting('start_balance', bal);
-      await setSetting('risk_pct', 10);
-      await setSetting('goal', 1000);
-      await setSetting('run_start', localParts().date);
-      await setSetting('run_size', 20);
-      const hash = hashPassword(pw);
-      await setSetting('password_hash', hash);
-      setSession(req, res, hash);
+      const email = normEmail(d.email), phone = normPhone(d.phone), name = cleanName(d.name);
+      if (!name) return fail(res, 422, 'Enter your name.');
+      if (!validEmail(email)) return fail(res, 422, 'Enter a valid email address.');
+      if (!phone) return fail(res, 422, 'Enter your phone number with country code, e.g. +251911234567.');
+      if (String(d.password || '').length < 8) return fail(res, 422, 'Use a password with at least 8 characters.');
+      if (d.password !== d.password2) return fail(res, 422, 'The two passwords do not match.');
+      await installFresh();
+      const r = await q(`INSERT INTO users (email, name, phone, password_hash, email_verified, status, role, last_login, terms_accepted_at)
+        VALUES ($1,$2,$3,$4,true,'active','admin',now(),now()) RETURNING *`, [email, name, phone, hashPassword(d.password)]);
+      await newUserDefaults(r[0].id, d.balance);
+      setSession(req, res, r[0]);
+      return send(res, 200, { ok: true, next: 'app' });
+    }
+
+    if (!(await ensureSchema())) return fail(res, 409, 'The journal is not set up yet.');
+
+    if (action === 'register') {
+      if (d.website) return send(res, 200, { ok: true, next: 'check_email' }); // bot trap
+      if ((await getSite()).registration_open === '0') return fail(res, 403, 'Sign-up is closed right now.');
+      if (!d.terms) return fail(res, 422, 'Please accept the Terms and Conditions and Privacy Policy.');
+      const email = normEmail(d.email), phone = normPhone(d.phone), name = cleanName(d.name);
+      if (!name) return fail(res, 422, 'Enter your name.');
+      if (!validEmail(email)) return fail(res, 422, 'Enter a valid email address.');
+      if (!phone) return fail(res, 422, 'Enter your phone number with country code, e.g. +251911234567.');
+      if (String(d.password || '').length < 8) return fail(res, 422, 'Use a password with at least 8 characters.');
+      if (d.password !== d.password2) return fail(res, 422, 'The two passwords do not match.');
+      const ex = await q('SELECT * FROM users WHERE email = $1', [email]);
+      if (ex.length) {
+        const u = ex[0];
+        if (!u.email_verified) {
+          // never confirmed: the newest sign-up wins, so only the real email owner can finish it
+          const r2 = await q('UPDATE users SET name = $2, phone = $3, password_hash = $4, pw_version = pw_version + 1, terms_accepted_at = now() WHERE id = $1 RETURNING *',
+            [u.id, name, phone, hashPassword(d.password)]);
+          await sendVerify(req, r2[0]);
+          return send(res, 200, { ok: true, next: 'check_email' });
+        }
+        return fail(res, 409, 'An account with this email already exists. Sign in, or use "Forgot password".');
+      }
+      const r = await q(`INSERT INTO users (email, name, phone, password_hash, terms_accepted_at) VALUES ($1,$2,$3,$4,now()) RETURNING *`,
+        [email, name, phone, hashPassword(d.password)]);
+      await newUserDefaults(r[0].id, 0);
+      await sendVerify(req, r[0]);
+      return send(res, 200, { ok: true, next: 'check_email' });
+    }
+
+    if (action === 'resend_verify') {
+      const r = await q('SELECT * FROM users WHERE email = $1', [normEmail(d.email)]);
+      if (r.length && !r[0].email_verified) await sendVerify(req, r[0]);
       return send(res, 200, { ok: true });
     }
 
     if (action === 'login') {
-      const hash = await getSetting('password_hash');
-      if (!hash) return fail(res, 409, 'Not set up yet.');
-      const lockUntil = Number(await getSetting('lock_until', 0));
-      if (lockUntil > Date.now()) {
-        return fail(res, 429, `Too many wrong attempts. Try again in ${Math.ceil((lockUntil - Date.now()) / 60000)} min.`);
+      const r = await q('SELECT * FROM users WHERE email = $1', [normEmail(d.email)]);
+      const u = r[0];
+      const bad = 'Wrong email or password.';
+      if (!u) { await new Promise((ok) => setTimeout(ok, 400)); return fail(res, 401, bad); }
+      if (Number(u.lock_until) > Date.now()) {
+        return fail(res, 429, `Too many wrong attempts. Try again in ${Math.ceil((u.lock_until - Date.now()) / 60000)} min.`);
       }
-      if (verifyPassword(d.password || '', hash)) {
-        await setSetting('fail_count', 0);
-        setSession(req, res, hash);
-        return send(res, 200, { ok: true });
+      if (!u.password_hash) return fail(res, 401, 'This account uses Google. Click "Continue with Google", or use "Forgot password" to set a password.');
+      if (!verifyPassword(d.password || '', u.password_hash)) {
+        await new Promise((ok) => setTimeout(ok, 400));
+        const fails = u.fail_count + 1;
+        if (fails >= 5) {
+          await q('UPDATE users SET fail_count = 0, lock_until = $2 WHERE id = $1', [u.id, Date.now() + 10 * 60 * 1000]);
+          return fail(res, 429, 'Too many wrong attempts. Locked for 10 minutes.');
+        }
+        await q('UPDATE users SET fail_count = $2 WHERE id = $1', [u.id, fails]);
+        return fail(res, 401, bad);
       }
-      await new Promise((r) => setTimeout(r, 400));
-      const fails = Number(await getSetting('fail_count', 0)) + 1;
-      if (fails >= 5) {
-        await setSetting('lock_until', Date.now() + 10 * 60 * 1000);
-        await setSetting('fail_count', 0);
-        return fail(res, 429, 'Too many wrong attempts. Locked for 10 minutes.');
+      return finishLogin(req, res, u);
+    }
+
+    if (action === 'complete_phone') {
+      const u = await getPreUser(req);
+      if (!u) return fail(res, 401, 'Your sign-in expired. Sign in again.');
+      const phone = normPhone(d.phone);
+      if (!phone) return fail(res, 422, 'Enter your phone number with country code, e.g. +251911234567.');
+      if (u.status === 'pending' && !d.terms && !u.terms_accepted_at) return fail(res, 422, 'Please accept the Terms and Conditions and Privacy Policy.');
+      let r = await q('UPDATE users SET phone = $2, terms_accepted_at = COALESCE(terms_accepted_at, now()) WHERE id = $1 RETURNING *', [u.id, phone]);
+      if (r[0].status === 'pending' && !(await approvalRequired())) r = await q(`UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`, [u.id]);
+      await notifyAdmins(req, r[0]);
+      return finishLogin(req, res, r[0]);
+    }
+
+    if (action === 'forgot') {
+      const r = await q('SELECT * FROM users WHERE email = $1', [normEmail(d.email)]);
+      if (r.length && r[0].status !== 'disabled') {
+        const t = await makeToken(r[0].id, 'reset', 3600 * 1000);
+        await mails.reset(r[0], `${appUrl(req)}/login.html?reset=${t}`);
       }
-      await setSetting('fail_count', fails);
-      return fail(res, 401, `Wrong password. ${5 - fails} tries left.`);
+      return send(res, 200, { ok: true }); // same answer either way
+    }
+
+    if (action === 'check_reset') {
+      return send(res, 200, { ok: !!(await peekToken(d.token, 'reset')) });
+    }
+
+    if (action === 'reset') {
+      if (String(d.password || '').length < 8) return fail(res, 422, 'Use a password with at least 8 characters.');
+      if (d.password !== d.password2) return fail(res, 422, 'The two passwords do not match.');
+      const uid = await useToken(d.token, 'reset');
+      if (!uid) return fail(res, 410, 'This reset link has expired or was already used. Ask for a new one.');
+      // a working reset link also proves the email address
+      const r = await q(`UPDATE users SET password_hash = $2, pw_version = pw_version + 1, email_verified = true, fail_count = 0, lock_until = 0
+        WHERE id = $1 RETURNING *`, [uid, hashPassword(d.password)]);
+      return finishLogin(req, res, r[0]);
     }
 
     return fail(res, 400, 'Unknown action');
@@ -71,4 +176,3 @@ export default async function handler(req, res) {
     return fail(res, e.status || 500, e.status ? e.message : 'Server error. Check the Vercel function logs.');
   }
 }
-

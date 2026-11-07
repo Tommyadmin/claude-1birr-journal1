@@ -1,26 +1,96 @@
-// /api/app?action=...  The journal's data API (sign-in required).
+// /api/app?action=...  The journal's data API (sign-in required; every query is limited to the signed-in user).
 import crypto from 'node:crypto';
-import { q, getSetting, setSetting } from '../lib/db.js';
-import { getSession, checkCsrf, csrfFor, verifyPassword, hashPassword, setSession } from '../lib/auth.js';
-import { send, fail, query, readBody, readJson, localParts, numOrNull, clip, CHECK_KEYS } from '../lib/util.js';
+import { q, getUS, setUS } from '../lib/db.js';
+import { getAuth, checkCsrf, csrfFor, verifyPassword, hashPassword, setSession, clearSession } from '../lib/auth.js';
+import { normPhone, cleanName } from '../lib/users.js';
+import { getPrefs, savePrefs, windowOf, guessInstrument } from '../lib/prefs.js';
+import { getSite, publicSite } from '../lib/site.js';
+import { send, fail, query, readBody, readJson, localParts, numOrNull, clip, strList } from '../lib/util.js';
 
 const MAX_IMG = 4 * 1024 * 1024; // Vercel functions accept bodies up to about 4.5 MB
 
-async function loadSettings() {
+async function loadSettings(uid) {
   return {
-    start_balance: Number(await getSetting('start_balance', 0)),
-    risk_pct: Number(await getSetting('risk_pct', 10)),
-    goal: Number(await getSetting('goal', 1000)),
-    run_start: await getSetting('run_start', localParts().date),
-    run_size: Number(await getSetting('run_size', 20)),
+    start_balance: Number(await getUS(uid, 'start_balance', 0)),
+    risk_pct: Number(await getUS(uid, 'risk_pct', 10)),
+    goal: Number(await getUS(uid, 'goal', 1000)),
   };
+}
+
+const publicUser = (u, avatarV) => ({
+  id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role,
+  has_password: !!u.password_hash, google: !!u.google_sub, profile: u.profile || {},
+  avatar: avatarV ? '/api/media?type=avatar&v=' + avatarV : '',
+});
+
+async function avatarVersion(uid) {
+  const r = await q(`SELECT to_char(updated_at,'YYYYMMDDHH24MISS') AS v FROM avatars WHERE user_id = $1`, [uid]);
+  return r.length ? r[0].v : '';
 }
 
 const TRADE_COLS = `id, trade_date::text AS trade_date, COALESCE(to_char(trade_time,'HH24:MI'),'') AS trade_time, session, pair, direction,
   entry::float8 AS entry, sl::float8 AS sl, tp::float8 AS tp, lot::float8 AS lot, risk_amount::float8 AS risk_amount,
-  pnl::float8 AS pnl, r_multiple::float8 AS r_multiple, result, checklist, emotional, followed_plan, mood, notes, lessons,
-  source, reviewed, mt5_account, mt5_position::text AS mt5_position, close_price::float8 AS close_price,
-  to_char(close_time,'YYYY-MM-DD HH24:MI:SS') AS close_time`;
+  pnl::float8 AS pnl, gross_pnl::float8 AS gross_pnl, commission::float8 AS commission, swap::float8 AS swap,
+  r_multiple::float8 AS r_multiple, result, checklist, emotional, followed_plan, mood, emotion_during, emotion_after, confidence,
+  notes, lessons, exit_reason, went_right, went_wrong, market_condition, strategy, instrument_type, mistakes, tags, leverage,
+  favorite, partials, account_type, source, reviewed, mt5_account, mt5_position::text AS mt5_position, close_price::float8 AS close_price,
+  to_char(close_time,'YYYY-MM-DD HH24:MI') AS close_time`;
+
+// Columns written from the trade form and from imports, in a fixed order.
+const FIELDS = ['trade_date', 'trade_time', 'session', 'pair', 'direction', 'entry', 'sl', 'tp', 'lot', 'risk_amount', 'pnl',
+  'gross_pnl', 'commission', 'swap', 'r_multiple', 'result', 'checklist', 'emotional', 'followed_plan', 'mood', 'emotion_during',
+  'emotion_after', 'confidence', 'notes', 'lessons', 'exit_reason', 'went_right', 'went_wrong', 'market_condition', 'strategy',
+  'instrument_type', 'mistakes', 'tags', 'leverage', 'partials', 'account_type', 'close_price', 'close_time'];
+const JSONB = new Set(['checklist', 'mistakes', 'tags', 'partials']);
+const ph = (i, f) => '$' + i + (JSONB.has(f) ? '::jsonb' : '');
+
+// Validates one trade. Returns { values } in FIELDS order, or { error }.
+function cleanTrade(d, prefs) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trade_date || '')) return { error: 'Enter a valid entry date.' };
+  const time = /^\d{2}:\d{2}$/.test(d.trade_time || '') ? d.trade_time + ':00' : null;
+  let raw = String(d.pair || '').trim().replace(/[.\-_][A-Za-z0-9]{1,6}$/, '');   // broker suffix: EURUSD.r, XAUUSD-ECN
+  const base = raw.replace(/[a-z]+$/, '');                                     // XAUUSDm, EURUSDz
+  if (base.length >= 6) raw = base;
+  const pair = raw.replace(/[^A-Za-z0-9/!]/g, '').toUpperCase().slice(0, 20);
+  if (!pair) return { error: 'Enter the instrument, e.g. XAUUSD.' };
+  const ids = prefs.windows.map((w) => w.id).concat('other');
+  const session = ids.includes(d.session) ? d.session : windowOf(prefs, (d.trade_time || '').slice(0, 5));
+  const direction = d.direction === 'sell' ? 'sell' : 'buy';
+  const gross = numOrNull(d.gross_pnl), commission = numOrNull(d.commission), swap = numOrNull(d.swap);
+  let pnl = numOrNull(d.pnl);
+  if (pnl === null && gross !== null) pnl = gross - Math.abs(commission || 0) + (swap || 0);
+  if (pnl === null) return { error: 'Enter the profit or loss (negative for a loss).' };
+  pnl = Math.round(pnl * 100) / 100;
+  const risk = numOrNull(d.risk_amount);
+  let result = ['W', 'L', 'B'].includes(d.result) ? d.result : null;
+  if (!result) result = risk && Math.abs(pnl) < 0.1 * risk ? 'B' : pnl > 0 ? 'W' : pnl < 0 ? 'L' : 'B';
+  const check = {};
+  const inC = d.checklist && typeof d.checklist === 'object' ? d.checklist : {};
+  Object.keys(inC).slice(0, 60).forEach((k) => { if (/^[a-z0-9_]{1,30}$/.test(k)) check[k] = !!inC[k]; });
+  const partials = (Array.isArray(d.partials) ? d.partials : []).slice(0, 30).map((p) => ({
+    kind: p && p.kind === 'in' ? 'in' : 'out', lot: numOrNull(p && p.lot), price: numOrNull(p && p.price), time: clip(p && p.time, 16),
+  })).filter((p) => p.lot && p.price);
+  let closeTime = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.close_date || '')) closeTime = d.close_date + ' ' + (/^\d{2}:\d{2}$/.test(d.close_time || '') ? d.close_time : '00:00') + ':00';
+  else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(d.close_time || '')) closeTime = d.close_time.slice(0, 16) + ':00';
+  const conf = numOrNull(d.confidence), lev = numOrNull(d.leverage);
+  const v = {
+    trade_date: d.trade_date, trade_time: time, session, pair, direction,
+    entry: numOrNull(d.entry), sl: numOrNull(d.sl), tp: numOrNull(d.tp), lot: numOrNull(d.lot), risk_amount: risk, pnl,
+    gross_pnl: gross, commission, swap, r_multiple: numOrNull(d.r_multiple), result,
+    checklist: JSON.stringify(check), emotional: d.emotional ? 1 : 0, followed_plan: d.followed_plan === false || d.followed_plan === 0 ? 0 : 1,
+    mood: clip(d.mood, 30), emotion_during: clip(d.emotion_during, 30), emotion_after: clip(d.emotion_after, 30),
+    confidence: conf === null ? null : Math.min(5, Math.max(1, Math.round(conf))),
+    notes: clip(d.notes, 5000), lessons: clip(d.lessons, 5000), exit_reason: clip(d.exit_reason, 3000),
+    went_right: clip(d.went_right, 3000), went_wrong: clip(d.went_wrong, 3000), market_condition: clip(d.market_condition, 40),
+    strategy: clip(d.strategy, 60), instrument_type: clip(d.instrument_type, 30) || guessInstrument(pair),
+    mistakes: JSON.stringify(strList(d.mistakes, 20, 60)), tags: JSON.stringify(strList(d.tags, 20, 30)),
+    leverage: lev === null ? null : Math.min(10000, Math.max(1, Math.round(lev))),
+    partials: JSON.stringify(partials), account_type: ['live', 'demo', 'backtest'].includes(d.account_type) ? d.account_type : 'live',
+    close_price: numOrNull(d.close_price), close_time: closeTime,
+  };
+  return { values: FIELDS.map((f) => v[f]) };
+}
 
 function sniffImage(buf) {
   if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
@@ -49,41 +119,62 @@ async function blobDel(urls) {
 }
 
 function csvCell(v) {
-  const s = v == null ? '' : String(v);
+  const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+async function inbox(uid, tz) {
+  return q(`SELECT n.id, n.title, n.body, (n.user_id IS NULL) AS broadcast,
+      to_char((n.created_at AT TIME ZONE 'UTC') AT TIME ZONE $2, 'YYYY-MM-DD HH24:MI') AS created_at,
+      (r.user_id IS NOT NULL) AS read
+    FROM notifications n
+    JOIN users u ON u.id = $1
+    LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.user_id = $1
+    WHERE n.user_id = $1 OR (n.user_id IS NULL AND n.created_at >= u.created_at - interval '30 days')
+    ORDER BY n.created_at DESC LIMIT 200`, [uid, tz]);
 }
 
 export default async function handler(req, res) {
   try {
-    const session = await getSession(req);
-    if (!session) return fail(res, 401, 'Signed out. Reload to sign in.');
+    const auth = await getAuth(req);
+    if (!auth) return fail(res, 401, 'Signed out. Reload to sign in.');
+    const { session, user } = auth;
+    const uid = user.id;
     const qs = query(req);
     const action = qs.get('action') || '';
-    const now = localParts();
 
     if (req.method === 'POST' && !checkCsrf(req, session)) return fail(res, 403, 'Session expired. Reload the page.');
     const post = (fn) => (req.method === 'POST' ? fn() : fail(res, 405, 'POST only'));
+    const prefs = await getPrefs(uid);
+    const now = localParts(new Date(), prefs.timezone);
 
     switch (action) {
       case 'bootstrap': {
-        const trades = await q(`SELECT ${TRADE_COLS} FROM trades ORDER BY trade_date, trade_time NULLS LAST, id`);
-        const shots = await q('SELECT id, trade_id, kind FROM screenshots ORDER BY id');
+        const trades = await q(`SELECT ${TRADE_COLS} FROM trades WHERE user_id = $1 ORDER BY trade_date, trade_time NULLS LAST, id`, [uid]);
+        const shots = await q(`SELECT s.id, s.trade_id, s.kind FROM screenshots s JOIN trades t ON t.id = s.trade_id
+          WHERE t.user_id = $1 ORDER BY s.id`, [uid]);
         const by = {};
         shots.forEach((s) => { (by[s.trade_id] = by[s.trade_id] || []).push({ id: s.id, kind: s.kind }); });
         trades.forEach((t) => { t.shots = by[t.id] || []; t.checklist = t.checklist || {}; });
+        const notes = await q(`SELECT day::text AS day, text FROM day_notes WHERE user_id = $1 ORDER BY day DESC LIMIT 400`, [uid]);
         return send(res, 200, {
           trades,
-          settings: await loadSettings(),
+          settings: await loadSettings(uid),
+          prefs,
+          user: publicUser(user, await avatarVersion(uid)),
+          site: publicSite(await getSite()),
+          inbox: await inbox(uid, prefs.timezone),
+          notes,
           today: now.date,
           now: now.hm,
           ts: Math.floor(Date.now() / 1000),
           tz_offset: now.offset,
           csrf: csrfFor(session),
           mt5: {
-            key: await getSetting('mt5_key', ''),
-            last_sync: await getSetting('mt5_last_sync', ''),
-            last_account: await getSetting('mt5_last_account', ''),
-            last_count: Number(await getSetting('mt5_last_count', 0)),
+            key: await getUS(uid, 'mt5_key', ''),
+            last_sync: await getUS(uid, 'mt5_last_sync', ''),
+            last_account: await getUS(uid, 'mt5_last_account', ''),
+            last_count: Number(await getUS(uid, 'mt5_last_count', 0)),
           },
         });
       }
@@ -91,61 +182,75 @@ export default async function handler(req, res) {
       case 'save_trade': return post(async () => {
         const d = await readJson(req);
         let id = parseInt(d.id, 10) || 0;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trade_date || '')) return fail(res, 422, 'Enter a valid date.');
-        const time = /^\d{2}:\d{2}$/.test(d.trade_time || '') ? d.trade_time + ':00' : null;
-        const session_ = ['london', 'ny', 'other'].includes(d.session) ? d.session : 'other';
-        const pair = String(d.pair || '').replace(/[^A-Za-z0-9/.]/g, '').toUpperCase().slice(0, 20);
-        if (!pair) return fail(res, 422, 'Enter the pair, e.g. XAUUSD.');
-        const direction = d.direction === 'sell' ? 'sell' : 'buy';
-        const result = ['W', 'L', 'B'].includes(d.result) ? d.result : 'W';
-        const pnl = numOrNull(d.pnl);
-        if (pnl === null) return fail(res, 422, 'Enter the profit or loss in $ (negative for a loss).');
-        const check = {};
-        const inC = d.checklist && typeof d.checklist === 'object' ? d.checklist : {};
-        CHECK_KEYS.forEach((k) => { check[k] = !!inC[k]; });
-
-        const vals = [d.trade_date, time, session_, pair, direction,
-          numOrNull(d.entry), numOrNull(d.sl), numOrNull(d.tp), numOrNull(d.lot), numOrNull(d.risk_amount),
-          Math.round(pnl * 100) / 100, numOrNull(d.r_multiple), result, JSON.stringify(check),
-          d.emotional ? 1 : 0, d.followed_plan ? 1 : 0, clip(d.mood, 30), clip(d.notes, 5000), clip(d.lessons, 5000), now.dt];
-
+        const c = cleanTrade(d, prefs);
+        if (c.error) return fail(res, 422, c.error);
+        const n = FIELDS.length;
+        const vals = c.values.concat([now.dt]);
         if (id > 0) {
-          vals.push(id);
-          await q(`UPDATE trades SET trade_date=$1, trade_time=$2, session=$3, pair=$4, direction=$5, entry=$6, sl=$7, tp=$8, lot=$9,
-            risk_amount=$10, pnl=$11, r_multiple=$12, result=$13, checklist=$14::jsonb, emotional=$15, followed_plan=$16, mood=$17,
-            notes=$18, lessons=$19, updated_at=$20, reviewed=1 WHERE id=$21`, vals);
+          vals.push(id, uid);
+          const set = FIELDS.map((f, i) => `${f}=${ph(i + 1, f)}`).join(', ');
+          const u = await q(`UPDATE trades SET ${set}, updated_at=$${n + 1}, reviewed=1 WHERE id=$${n + 2} AND user_id=$${n + 3} RETURNING id`, vals);
+          if (!u.length) return fail(res, 404, 'Trade not found.');
         } else {
-          const r = await q(`INSERT INTO trades (trade_date, trade_time, session, pair, direction, entry, sl, tp, lot, risk_amount, pnl,
-            r_multiple, result, checklist, emotional, followed_plan, mood, notes, lessons, updated_at, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$20) RETURNING id`, vals);
+          vals.push(uid);
+          const r = await q(`INSERT INTO trades (${FIELDS.join(', ')}, updated_at, created_at, user_id)
+            VALUES (${FIELDS.map((f, i) => ph(i + 1, f)).join(', ')}, $${n + 1}, $${n + 1}, $${n + 2}) RETURNING id`, vals);
           id = r[0].id;
         }
         return send(res, 200, { ok: true, id });
       });
 
+      case 'import_trades': return post(async () => {
+        const d = await readJson(req);
+        const rows = Array.isArray(d.rows) ? d.rows.slice(0, 300) : [];
+        let inserted = 0, duplicates = 0;
+        const errors = [];
+        const n = FIELDS.length;
+        for (let i = 0; i < rows.length; i++) {
+          const c = cleanTrade(rows[i] || {}, prefs);
+          if (c.error) { errors.push({ row: (rows[i] && rows[i]._row) || i + 1, error: c.error }); continue; }
+          const v = c.values;
+          // same date, time, instrument, side, entry, exit and result = the same trade
+          const key = crypto.createHash('sha1').update([v[0], v[1], v[3], v[4], v[5], v[36], v[10]].join('|')).digest('hex');
+          const r = await q(`INSERT INTO trades (${FIELDS.join(', ')}, updated_at, created_at, user_id, source, import_key)
+            VALUES (${FIELDS.map((f, j) => ph(j + 1, f)).join(', ')}, $${n + 1}, $${n + 1}, $${n + 2}, 'import', $${n + 3})
+            ON CONFLICT (user_id, import_key) DO NOTHING RETURNING id`, v.concat([now.dt, uid, key]));
+          if (r.length) inserted++; else duplicates++;
+        }
+        return send(res, 200, { ok: true, inserted, duplicates, errors });
+      });
+
+      case 'toggle_favorite': return post(async () => {
+        const d = await readJson(req);
+        const r = await q('UPDATE trades SET favorite = 1 - favorite WHERE id = $1 AND user_id = $2 RETURNING favorite', [parseInt(d.id, 10) || 0, uid]);
+        if (!r.length) return fail(res, 404, 'Trade not found.');
+        return send(res, 200, { ok: true, favorite: r[0].favorite });
+      });
+
       case 'delete_trade': return post(async () => {
         const d = await readJson(req);
         const id = parseInt(d.id, 10) || 0;
-        const t = await q('SELECT mt5_account, mt5_position FROM trades WHERE id = $1', [id]);
-        if (t.length && t[0].mt5_position !== null) {
-          await q('INSERT INTO mt5_ignored (mt5_account, mt5_position) VALUES ($1,$2) ON CONFLICT DO NOTHING', [t[0].mt5_account || '', t[0].mt5_position]);
+        const t = await q('SELECT mt5_account, mt5_position FROM trades WHERE id = $1 AND user_id = $2', [id, uid]);
+        if (!t.length) return fail(res, 404, 'Trade not found.');
+        if (t[0].mt5_position !== null) {
+          await q('INSERT INTO mt5_ignored (user_id, mt5_account, mt5_position) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [uid, t[0].mt5_account || '', t[0].mt5_position]);
         }
         const shots = await q('SELECT url FROM screenshots WHERE trade_id = $1', [id]);
         await blobDel(shots.map((s) => s.url));
-        await q('DELETE FROM trades WHERE id = $1', [id]); // screenshots cascade
+        await q('DELETE FROM trades WHERE id = $1 AND user_id = $2', [id, uid]); // screenshots cascade
         return send(res, 200, { ok: true });
       });
 
       case 'upload': return post(async () => {
         const tradeId = parseInt(qs.get('trade_id'), 10) || 0;
         const kind = qs.get('kind') === 'after' ? 'after' : 'before';
-        const t = await q('SELECT id FROM trades WHERE id = $1', [tradeId]);
+        const t = await q('SELECT id FROM trades WHERE id = $1 AND user_id = $2', [tradeId, uid]);
         if (!t.length) return fail(res, 422, 'Save the trade first.');
         const buf = await readBody(req, MAX_IMG);
         const mime = sniffImage(buf);
         if (!mime) return fail(res, 422, 'Only JPG, PNG, WEBP or GIF images.');
         const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
-        const url = await blobPut(`journal/${tradeId}-${kind}-${crypto.randomBytes(8).toString('hex')}.${ext}`, buf, mime);
+        const url = await blobPut(`journal/${uid}/${tradeId}-${kind}-${crypto.randomBytes(8).toString('hex')}.${ext}`, buf, mime);
         const r = await q('INSERT INTO screenshots (trade_id, kind, mime, url, data) VALUES ($1,$2,$3,$4,$5) RETURNING id',
           [tradeId, kind, mime, url, url ? null : buf]);
         return send(res, 200, { ok: true, id: r[0].id, kind });
@@ -153,8 +258,8 @@ export default async function handler(req, res) {
 
       case 'delete_shot': return post(async () => {
         const d = await readJson(req);
-        const id = parseInt(d.id, 10) || 0;
-        const r = await q('DELETE FROM screenshots WHERE id = $1 RETURNING url', [id]);
+        const r = await q(`DELETE FROM screenshots s USING trades t
+          WHERE s.id = $1 AND t.id = s.trade_id AND t.user_id = $2 RETURNING s.url`, [parseInt(d.id, 10) || 0, uid]);
         if (r.length) await blobDel([r[0].url]);
         return send(res, 200, { ok: true });
       });
@@ -162,37 +267,121 @@ export default async function handler(req, res) {
       case 'save_settings': return post(async () => {
         const d = await readJson(req);
         const n = (v) => v !== undefined && v !== '' && Number.isFinite(Number(v));
-        if (n(d.start_balance)) await setSetting('start_balance', Math.max(0, Number(d.start_balance)));
-        if (n(d.risk_pct)) await setSetting('risk_pct', Math.min(100, Math.max(0.1, Number(d.risk_pct))));
-        if (n(d.goal)) await setSetting('goal', Math.max(0, Number(d.goal)));
-        if (n(d.run_size)) await setSetting('run_size', Math.min(500, Math.max(1, parseInt(d.run_size, 10))));
-        if (/^\d{4}-\d{2}-\d{2}$/.test(d.run_start || '')) await setSetting('run_start', d.run_start);
+        if (n(d.start_balance)) await setUS(uid, 'start_balance', Math.max(0, Number(d.start_balance)));
+        if (n(d.risk_pct)) await setUS(uid, 'risk_pct', Math.min(100, Math.max(0.1, Number(d.risk_pct))));
+        if (n(d.goal)) await setUS(uid, 'goal', Math.max(0, Number(d.goal)));
         if (d.new_password) {
-          if (!verifyPassword(d.current_password || '', await getSetting('password_hash'))) return fail(res, 422, 'Current password is wrong.');
+          if (user.password_hash && !verifyPassword(d.current_password || '', user.password_hash)) return fail(res, 422, 'Current password is wrong.');
           if (String(d.new_password).length < 8) return fail(res, 422, 'New password needs at least 8 characters.');
-          const hash = hashPassword(String(d.new_password));
-          await setSetting('password_hash', hash);
-          setSession(req, res, hash); // keep this device signed in; others are signed out
+          const r = await q('UPDATE users SET password_hash = $2, pw_version = pw_version + 1 WHERE id = $1 RETURNING *', [uid, hashPassword(String(d.new_password))]);
+          setSession(req, res, r[0]); // keep this device signed in; others are signed out
         }
-        return send(res, 200, { ok: true, settings: await loadSettings() });
+        return send(res, 200, { ok: true, settings: await loadSettings(uid) });
+      });
+
+      case 'save_prefs': return post(async () => {
+        const d = await readJson(req);
+        const merged = { ...prefs, ...(d.prefs && typeof d.prefs === 'object' ? d.prefs : {}) };
+        return send(res, 200, { ok: true, prefs: await savePrefs(uid, merged) });
+      });
+
+      case 'save_profile': return post(async () => {
+        const d = await readJson(req);
+        const name = cleanName(d.name), phone = normPhone(d.phone);
+        if (!name) return fail(res, 422, 'Enter your name.');
+        if (!phone) return fail(res, 422, 'Enter your phone number with country code, e.g. +251911234567.');
+        const p = d.profile && typeof d.profile === 'object' ? d.profile : {};
+        const keys = { country: 60, city: 60, bio: 600, experience: 30, trading_since: 4, broker: 60, platform: 30, website: 200, telegram: 60, x: 60, birthday: 10 };
+        const profile = {};
+        Object.keys(keys).forEach((k) => { const v = clip(p[k], keys[k]).replace(/[<>"]/g, ''); if (v) profile[k] = v; });
+        if (profile.website && !/^https?:\/\//i.test(profile.website)) profile.website = 'https://' + profile.website;
+        if (profile.birthday && !/^\d{4}-\d{2}-\d{2}$/.test(profile.birthday)) delete profile.birthday;
+        const r = await q('UPDATE users SET name = $2, phone = $3, profile = $4::jsonb WHERE id = $1 RETURNING *', [uid, name, phone, JSON.stringify(profile)]);
+        return send(res, 200, { ok: true, user: publicUser(r[0], await avatarVersion(uid)) });
+      });
+
+      case 'upload_avatar': return post(async () => {
+        const buf = await readBody(req, 1.5 * 1024 * 1024);
+        const mime = sniffImage(buf);
+        if (!mime || mime === 'image/gif') return fail(res, 422, 'Use a JPG, PNG or WEBP photo.');
+        await q(`INSERT INTO avatars (user_id, mime, data, updated_at) VALUES ($1,$2,$3,now())
+          ON CONFLICT (user_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now()`, [uid, mime, buf]);
+        return send(res, 200, { ok: true, avatar: '/api/media?type=avatar&v=' + (await avatarVersion(uid)) });
+      });
+
+      case 'delete_avatar': return post(async () => {
+        await q('DELETE FROM avatars WHERE user_id = $1', [uid]);
+        return send(res, 200, { ok: true });
+      });
+
+      case 'inbox':
+        return send(res, 200, { inbox: await inbox(uid, prefs.timezone) });
+
+      case 'mark_read': return post(async () => {
+        const d = await readJson(req);
+        if (d.all) {
+          await q(`INSERT INTO notification_reads (notification_id, user_id)
+            SELECT n.id, $1 FROM notifications n JOIN users u ON u.id = $1
+            WHERE n.user_id = $1 OR (n.user_id IS NULL AND n.created_at >= u.created_at - interval '30 days')
+            ON CONFLICT DO NOTHING`, [uid]);
+        } else {
+          const ids = (Array.isArray(d.ids) ? d.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 200);
+          if (ids.length) {
+            await q(`INSERT INTO notification_reads (notification_id, user_id)
+              SELECT id, $1 FROM notifications WHERE id = ANY($2) AND (user_id = $1 OR user_id IS NULL)
+              ON CONFLICT DO NOTHING`, [uid, ids]);
+          }
+        }
+        return send(res, 200, { ok: true, inbox: await inbox(uid, prefs.timezone) });
+      });
+
+      case 'save_note': return post(async () => {
+        const d = await readJson(req);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.day || '')) return fail(res, 422, 'Bad date.');
+        const text = clip(d.text, 10000);
+        if (text) await q(`INSERT INTO day_notes (user_id, day, text) VALUES ($1,$2,$3) ON CONFLICT (user_id, day) DO UPDATE SET text = EXCLUDED.text`, [uid, d.day, text]);
+        else await q('DELETE FROM day_notes WHERE user_id = $1 AND day = $2', [uid, d.day]);
+        return send(res, 200, { ok: true });
+      });
+
+      case 'delete_account': return post(async () => {
+        const d = await readJson(req);
+        if (d.confirm !== 'DELETE') return fail(res, 422, 'Type DELETE to confirm.');
+        if (user.password_hash && !verifyPassword(d.password || '', user.password_hash)) return fail(res, 422, 'Password is wrong.');
+        if (user.role === 'admin') {
+          const others = await q(`SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> $1 LIMIT 1`, [uid]);
+          if (!others.length) return fail(res, 409, 'You are the only admin. Make another user admin first.');
+        }
+        const shots = await q('SELECT s.url FROM screenshots s JOIN trades t ON t.id = s.trade_id WHERE t.user_id = $1', [uid]);
+        await blobDel(shots.map((x) => x.url));
+        await q('DELETE FROM users WHERE id = $1', [uid]); // trades, screenshots, settings, avatar cascade
+        clearSession(req, res);
+        return send(res, 200, { ok: true });
       });
 
       case 'mt5_key': return post(async () => {
         const key = crypto.randomBytes(20).toString('hex');
-        await setSetting('mt5_key', key);
+        await setUS(uid, 'mt5_key', key);
         return send(res, 200, { ok: true, key });
       });
 
       case 'export': {
-        const rows = await q(`SELECT ${TRADE_COLS} FROM trades ORDER BY trade_date, trade_time NULLS LAST, id`);
-        const head = ['date', 'time', 'session', 'pair', 'direction', 'entry', 'sl', 'tp', 'lot', 'risk_$', 'pnl_$', 'R', 'result',
-          'followed_plan', 'emotional', 'mood', 'checklist_ok', 'source', 'mt5_position', 'notes', 'lessons'];
+        const from = /^\d{4}-\d{2}-\d{2}$/.test(qs.get('from') || '') ? qs.get('from') : '0001-01-01';
+        const to = /^\d{4}-\d{2}-\d{2}$/.test(qs.get('to') || '') ? qs.get('to') : '9999-12-31';
+        const rows = await q(`SELECT ${TRADE_COLS} FROM trades WHERE user_id = $1 AND trade_date BETWEEN $2 AND $3
+          ORDER BY trade_date, trade_time NULLS LAST, id`, [uid, from, to]);
+        const head = ['date', 'time', 'close_time', 'account_type', 'instrument_type', 'pair', 'direction', 'lot', 'leverage', 'entry', 'sl', 'tp',
+          'close_price', 'risk', 'gross_pnl', 'commission', 'swap', 'pnl', 'r_multiple', 'result', 'session', 'strategy', 'market_condition',
+          'mistakes', 'tags', 'emotion_before', 'emotion_during', 'emotion_after', 'confidence', 'followed_plan', 'emotional',
+          'checklist_ok', 'notes', 'exit_reason', 'went_right', 'went_wrong', 'lessons', 'source', 'mt5_position'];
         const lines = [head.join(',')];
         rows.forEach((r) => {
           const c = r.checklist || {};
           const ok = Object.values(c).filter(Boolean).length + '/' + Object.keys(c).length;
-          lines.push([r.trade_date, r.trade_time, r.session, r.pair, r.direction, r.entry, r.sl, r.tp, r.lot, r.risk_amount, r.pnl,
-            r.r_multiple, r.result, r.followed_plan, r.emotional, r.mood, ok, r.source, r.mt5_position, r.notes, r.lessons].map(csvCell).join(','));
+          lines.push([r.trade_date, r.trade_time, r.close_time, r.account_type, r.instrument_type, r.pair, r.direction, r.lot, r.leverage, r.entry, r.sl, r.tp,
+            r.close_price, r.risk_amount, r.gross_pnl, r.commission, r.swap, r.pnl, r.r_multiple, r.result, r.session, r.strategy, r.market_condition,
+            (r.mistakes || []).join('; '), (r.tags || []).join('; '), r.mood, r.emotion_during, r.emotion_after, r.confidence, r.followed_plan, r.emotional,
+            ok, r.notes, r.exit_reason, r.went_right, r.went_wrong, r.lessons, r.source, r.mt5_position].map(csvCell).join(','));
         });
         res.setHeader('Content-Disposition', `attachment; filename="trading-journal-${now.date}.csv"`);
         return send(res, 200, '﻿' + lines.join('\r\n'), 'text/csv; charset=utf-8');

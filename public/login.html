@@ -4,67 +4,248 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#ffffff">
-<title>Sign in · Wakanda Trade Journal</title>
-<link rel="stylesheet" href="/assets/app.css?v=2.0.0">
-<script src="/assets/theme.js?v=2.0.0"></script>
+<title>Sign in</title>
+<link rel="icon" href="/api/media?type=logo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/app.css?v=4.0.0">
+<script src="/assets/theme.js?v=4.0.0"></script>
+<style>
+  .auth-card{width:min(420px,100%)}
+  .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:600 15px var(--f-body);text-decoration:none;cursor:pointer}
+  .gbtn:hover{border-color:var(--fg)}
+  .gbtn svg{width:18px;height:18px}
+  .or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+  .links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:14px}
+  .links a,.linkbtn{color:var(--gold);cursor:pointer;background:none;border:0;padding:0;font:inherit;text-decoration:underline;text-underline-offset:2px}
+  .phone{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.6fr);gap:8px}
+  .info{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;font-size:15px}
+  .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  .hint{font-size:12px;color:var(--muted);margin-top:-6px}
+</style>
 </head>
 <body class="auth">
 <button class="theme-btn" type="button"></button>
 <main class="auth-card">
-  <div class="eyebrow">Wakanda Trade</div>
-  <h1 id="title">Trading Journal</h1>
+  <div class="row" id="brand" style="gap:10px"><span class="mono-mark" id="brandMark">·</span><div><b id="brandName" style="font:700 16px var(--f-head)"></b><div class="small muted" id="brandTag"></div></div></div>
+  <h1 id="title">Sign in</h1>
+  <p class="ok-box" id="ok" hidden></p>
   <p class="alert" id="err" hidden></p>
   <p class="muted" id="loading">Loading…</p>
 
-  <form id="loginForm" class="stack" hidden>
-    <label>Password <input type="password" id="pw" required autocomplete="current-password"></label>
-    <button class="btn primary" type="submit">Sign in</button>
-  </form>
+  <!-- sign in -->
+  <section data-panel="signin" class="stack" hidden>
+    <a class="gbtn" href="/api/google" data-google hidden><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continue with Google</a>
+    <div class="or" data-google hidden>or</div>
+    <form id="fSignin" class="stack">
+      <label>Email <input type="email" id="siEmail" required autocomplete="email"></label>
+      <label>Password <input type="password" id="siPw" required autocomplete="current-password"></label>
+      <button class="btn primary" type="submit">Sign in</button>
+    </form>
+    <div class="links"><a data-go="register">Create an account</a><a data-go="forgot">Forgot password?</a></div>
+    <button class="linkbtn" id="resendBtn" type="button" hidden>Send the confirmation email again</button>
+  </section>
 
-  <form id="setupForm" class="stack" hidden>
-    <p class="muted" style="margin:0;font-size:14px">First-time setup. The setup code is the <b>APP_SECRET</b> value you added in Vercel. It proves you own this deployment.</p>
-    <label>Setup code (APP_SECRET) <input type="password" id="code" required autocomplete="off"></label>
-    <label>Choose a password <input type="password" id="pw1" required minlength="8" autocomplete="new-password"></label>
-    <label>Repeat password <input type="password" id="pw2" required minlength="8" autocomplete="new-password"></label>
-    <label>Starting account balance ($) <input type="number" id="bal" step="0.01" min="0" value="100" required></label>
-    <button class="btn primary" type="submit">Set up journal</button>
-  </form>
+  <!-- register -->
+  <section data-panel="register" class="stack" hidden>
+    <a class="gbtn" href="/api/google" data-google hidden><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Sign up with Google</a>
+    <div class="or" data-google hidden>or</div>
+    <form id="fRegister" class="stack">
+      <label>Full name <input id="rgName" required autocomplete="name" maxlength="80"></label>
+      <label>Email <input type="email" id="rgEmail" required autocomplete="email"></label>
+      <label>Phone number <span class="phone" data-phone="rg"></span></label>
+      <label>Password (8+ characters) <input type="password" id="rgPw" required minlength="8" autocomplete="new-password"></label>
+      <label>Repeat password <input type="password" id="rgPw2" required minlength="8" autocomplete="new-password"></label>
+      <label class="switch" style="flex-direction:row;font-size:13px;align-items:flex-start"><input type="checkbox" id="rgTerms" required style="margin-top:2px"><span>I agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms and Conditions</a> and <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
+      <div class="hp" aria-hidden="true"><label>Website <input id="rgWeb" tabindex="-1" autocomplete="off"></label></div>
+      <button class="btn primary" type="submit">Create account</button>
+    </form>
+    <p class="hint">We send a link to confirm your email. New accounts are approved by the journal owner.</p>
+    <div class="links"><a data-go="signin">I already have an account</a></div>
+  </section>
+
+  <!-- after sign-up -->
+  <section data-panel="check_email" class="stack" hidden>
+    <p class="info">We sent a confirmation link to <b id="ceEmail"></b>. Open it to confirm your email. Check your spam folder if you don't see it.</p>
+    <button class="btn" id="ceResend" type="button">Send it again</button>
+    <div class="links"><a data-go="signin">Back to sign in</a></div>
+  </section>
+
+  <!-- waiting for approval -->
+  <section data-panel="pending" class="stack" hidden>
+    <p class="info">Your account is waiting for approval. You'll get an email when it's ready, then you can sign in.</p>
+    <div class="links"><a data-go="signin">Back to sign in</a></div>
+  </section>
+
+  <!-- Google sign-up: add phone -->
+  <section data-panel="phone" class="stack" hidden>
+    <p class="info">One more step: add your phone number to finish your account.</p>
+    <form id="fPhone" class="stack">
+      <label>Phone number <span class="phone" data-phone="ph"></span></label>
+      <label class="switch" style="flex-direction:row;font-size:13px;align-items:flex-start"><input type="checkbox" id="phTerms" required style="margin-top:2px"><span>I agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms and Conditions</a> and <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
+      <button class="btn primary" type="submit">Continue</button>
+    </form>
+  </section>
+
+  <!-- forgot -->
+  <section data-panel="forgot" class="stack" hidden>
+    <form id="fForgot" class="stack">
+      <label>Your account email <input type="email" id="fgEmail" required autocomplete="email"></label>
+      <button class="btn primary" type="submit">Send reset link</button>
+    </form>
+    <div class="links"><a data-go="signin">Back to sign in</a></div>
+  </section>
+
+  <!-- reset -->
+  <section data-panel="reset" class="stack" hidden>
+    <form id="fReset" class="stack">
+      <label>New password (8+ characters) <input type="password" id="rsPw" required minlength="8" autocomplete="new-password"></label>
+      <label>Repeat new password <input type="password" id="rsPw2" required minlength="8" autocomplete="new-password"></label>
+      <button class="btn primary" type="submit">Save new password</button>
+    </form>
+  </section>
+
+  <!-- first-time setup -->
+  <section data-panel="setup" class="stack" hidden>
+    <p class="muted" style="margin:0;font-size:14px">First-time setup. The setup code is the <b>APP_SECRET</b> value in your Vercel settings. You become the admin.</p>
+    <form id="fSetup" class="stack">
+      <label>Setup code (APP_SECRET) <input type="password" id="suCode" required autocomplete="off"></label>
+      <label>Full name <input id="suName" required autocomplete="name"></label>
+      <label>Email <input type="email" id="suEmail" required autocomplete="email"></label>
+      <label>Phone number <span class="phone" data-phone="su"></span></label>
+      <label>Password (8+ characters) <input type="password" id="suPw" required minlength="8" autocomplete="new-password"></label>
+      <label>Repeat password <input type="password" id="suPw2" required minlength="8" autocomplete="new-password"></label>
+      <label>Starting account balance ($) <input type="number" id="suBal" step="0.01" min="0" value="100" required></label>
+      <button class="btn primary" type="submit">Set up journal</button>
+    </form>
+  </section>
 </main>
+<footer class="small muted" id="foot" style="text-align:center"></footer>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  function showErr(m) { var e = $('err'); e.textContent = m; e.hidden = !m; }
+  var CODES = [['+251', '+251 Ethiopia'], ['+254', '+254 Kenya'], ['+255', '+255 Tanzania'], ['+256', '+256 Uganda'], ['+250', '+250 Rwanda'],
+    ['+252', '+252 Somalia'], ['+253', '+253 Djibouti'], ['+211', '+211 South Sudan'], ['+249', '+249 Sudan'], ['+234', '+234 Nigeria'],
+    ['+233', '+233 Ghana'], ['+27', '+27 South Africa'], ['+20', '+20 Egypt'], ['+971', '+971 UAE'], ['+966', '+966 Saudi Arabia'],
+    ['+44', '+44 UK'], ['+1', '+1 US / Canada'], ['+49', '+49 Germany'], ['+33', '+33 France'], ['+91', '+91 India'], ['', 'Other: type +code']];
+
+  document.querySelectorAll('[data-phone]').forEach(function (el) {
+    var p = el.dataset.phone;
+    el.innerHTML = '<select id="' + p + 'Cc" aria-label="Country code">' + CODES.map(function (c) { return '<option value="' + c[0] + '">' + c[1] + '</option>'; }).join('') + '</select>' +
+      '<input id="' + p + 'Num" type="tel" inputmode="tel" required autocomplete="tel-national" placeholder="911 234 567">';
+  });
+  function phoneOf(p) {
+    var cc = $(p + 'Cc').value, n = $(p + 'Num').value.replace(/[\s\-().]/g, '');
+    if (n.charAt(0) === '+' || !cc) return n;
+    return cc + n.replace(/^0+/, '');
+  }
+
+  function msg(type, text) {
+    $('ok').hidden = $('err').hidden = true;
+    if (text) { var e = $(type === 'ok' ? 'ok' : 'err'); e.textContent = text; e.hidden = false; }
+  }
+  var TITLES = { signin: 'Sign in', register: 'Create your account', check_email: 'Check your email', pending: 'Almost there', phone: 'Add your phone',
+    forgot: 'Reset your password', reset: 'Choose a new password', setup: 'Set up your journal' };
+  function show(panel) {
+    document.querySelectorAll('[data-panel]').forEach(function (s) { s.hidden = s.dataset.panel !== panel; });
+    $('title').textContent = TITLES[panel] || 'Trading Journal';
+    var f = document.querySelector('[data-panel="' + panel + '"] input:not([tabindex="-1"])'); if (f) f.focus();
+  }
+  document.querySelectorAll('[data-go]').forEach(function (a) { a.href = '#'; a.onclick = function (e) { e.preventDefault(); msg(); show(a.dataset.go); }; });
+
   function call(action, body) {
     return fetch('/api/auth?action=' + action, {
       method: body ? 'POST' : 'GET', credentials: 'same-origin',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined
+      headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return { error: 'Server error (' + r.status + ')' }; }).then(function (j) {
-        if (!r.ok || j.error) throw new Error(j.error || 'Request failed');
+        if (!r.ok || j.error) { var er = new Error(j.error || 'Request failed'); er.code = j.code; throw er; }
         return j;
       });
     });
   }
-  function busy(form, on) { var b = form.querySelector('button[type=submit]'); b.disabled = on; }
+  function next(j) {
+    if (j.next === 'app') location.replace('/');
+    else if (j.next === 'phone') show('phone');
+    else if (j.next === 'pending') show('pending');
+    else if (j.next === 'check_email') show('check_email');
+  }
+  function bind(formId, fn) {
+    $(formId).addEventListener('submit', function (e) {
+      e.preventDefault(); msg(); var b = this.querySelector('button[type=submit]'); b.disabled = true;
+      Promise.resolve(fn()).catch(function (err) { msg('err', err.message); if (err.code === 'unverified') $('resendBtn').hidden = false; })
+        .then(function () { b.disabled = false; });
+    });
+  }
+
+  var MSGS = {
+    verified: ['ok', 'Email confirmed. You can sign in now.'],
+    verified_pending: ['ok', 'Email confirmed. Your account is now waiting for approval. We will email you when it is ready.'],
+    link_invalid: ['err', 'That link has expired or was already used. Sign in to get a new one.'],
+    disabled: ['err', 'This account is disabled. Contact the journal owner.'],
+    unverified: ['err', 'Confirm your email first. Check your inbox for the link.'],
+    google_off: ['err', 'Google sign-in is not set up yet.'],
+    google_cancel: ['err', 'Google sign-in was cancelled.'],
+    google_failed: ['err', 'Google sign-in did not work. Try again.'],
+    google_expired: ['err', 'Google sign-in took too long. Try again.'],
+    google_unverified: ['err', 'Your Google email is not verified.'],
+    closed: ['err', 'Sign-up is closed right now.'],
+    not_setup: ['err', 'The journal is not set up yet.']
+  };
+  var params = new URLSearchParams(location.search);
+  var m = params.get('msg'), resetToken = params.get('reset');
+  if (m || resetToken) history.replaceState(null, '', '/login.html');
+
+  function brand(site) {
+    site = site || {};
+    document.title = (site.name || 'Trading journal') + ' · Sign in';
+    if (site.accent) document.documentElement.style.setProperty('--accent', site.accent);
+    $('brandName').textContent = site.name || '';
+    $('brandTag').textContent = site.tagline || '';
+    var mk = $('brandMark');
+    if (site.logo) { var im = document.createElement('img'); im.src = site.logo; im.alt = ''; im.style.cssText = 'width:36px;height:36px;object-fit:contain;border-radius:8px'; mk.replaceWith(im); }
+    else mk.textContent = String(site.name || '?').split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('');
+    $('foot').innerHTML = '';
+    if (site.footer) $('foot').appendChild(document.createTextNode(site.footer + ' · '));
+    $('foot').insertAdjacentHTML('beforeend', '<a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>');
+    if (site.registration_open === false) document.querySelectorAll('[data-go="register"]').forEach(function (a) { a.hidden = true; });
+    var hint = document.querySelector('[data-panel="register"] .hint');
+    if (hint && site.require_approval === false) hint.textContent = 'We send a link to confirm your email.';
+  }
 
   call('status').then(function (s) {
     $('loading').hidden = true;
-    if (s.logged_in) { location.replace('/'); return; }
-    if (!s.installed) { $('title').textContent = 'Set up your journal'; $('setupForm').hidden = false; $('code').focus(); }
-    else { $('loginForm').hidden = false; $('pw').focus(); }
-  }).catch(function (e) { $('loading').hidden = true; showErr(e.message); });
+    brand(s.site);
+    document.querySelectorAll('[data-google]').forEach(function (g) { g.hidden = !s.google; });
+    if (!s.installed) return show('setup');
+    if (s.logged_in && !resetToken) return location.replace('/');
+    if (resetToken) {
+      return call('check_reset', { token: resetToken }).then(function (r) {
+        if (r.ok) show('reset'); else { show('forgot'); msg('err', 'That reset link has expired or was already used. Ask for a new one.'); }
+      });
+    }
+    if (m === 'phone' || s.needs_phone) return show('phone');
+    if (m === 'pending') return show('pending');
+    show('signin');
+    if (MSGS[m]) msg(MSGS[m][0], MSGS[m][1]);
+  }).catch(function (e) { $('loading').hidden = true; msg('err', e.message); });
 
-  $('loginForm').addEventListener('submit', function (e) {
-    e.preventDefault(); showErr(''); busy(this, true); var f = this;
-    call('login', { password: $('pw').value }).then(function () { location.replace('/'); })
-      .catch(function (err) { showErr(err.message); busy(f, false); $('pw').select(); });
+  bind('fSignin', function () { return call('login', { email: $('siEmail').value, password: $('siPw').value }).then(next); });
+  $('resendBtn').onclick = function () { call('resend_verify', { email: $('siEmail').value }).then(function () { msg('ok', 'Sent. Check your inbox.'); $('resendBtn').hidden = true; }); };
+  bind('fRegister', function () {
+    return call('register', { name: $('rgName').value, email: $('rgEmail').value, phone: phoneOf('rg'), password: $('rgPw').value, password2: $('rgPw2').value, website: $('rgWeb').value, terms: $('rgTerms').checked })
+      .then(function (j) { $('ceEmail').textContent = $('rgEmail').value; next(j); });
   });
-  $('setupForm').addEventListener('submit', function (e) {
-    e.preventDefault(); showErr(''); busy(this, true); var f = this;
-    call('setup', { code: $('code').value, password: $('pw1').value, password2: $('pw2').value, balance: $('bal').value })
-      .then(function () { location.replace('/'); })
-      .catch(function (err) { showErr(err.message); busy(f, false); });
+  $('ceResend').onclick = function () { call('resend_verify', { email: $('ceEmail').textContent }).then(function () { msg('ok', 'Sent again.'); }); };
+  bind('fPhone', function () { return call('complete_phone', { phone: phoneOf('ph'), terms: $('phTerms').checked }).then(next); });
+  bind('fForgot', function () {
+    return call('forgot', { email: $('fgEmail').value }).then(function () { show('signin'); msg('ok', 'If an account uses that email, a reset link is on its way. It works for 1 hour.'); });
+  });
+  bind('fReset', function () { return call('reset', { token: resetToken, password: $('rsPw').value, password2: $('rsPw2').value }).then(next); });
+  bind('fSetup', function () {
+    return call('setup', { code: $('suCode').value, name: $('suName').value, email: $('suEmail').value, phone: phoneOf('su'),
+      password: $('suPw').value, password2: $('suPw2').value, balance: $('suBal').value }).then(next);
   });
 })();
 </script>

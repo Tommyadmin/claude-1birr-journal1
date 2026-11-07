@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<title>Terms and Conditions</title>
+<link rel="icon" href="/api/media?type=logo">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/app.css?v=4.0.0">
+<script src="/assets/theme.js?v=4.0.0"></script>
+</head>
+<body>
+<main class="wrap" style="max-width:820px">
+  <div class="row between"><a class="row" href="/" style="gap:10px;text-decoration:none;color:var(--fg)" id="brand"><span class="mono-mark" id="mark">·</span><b id="name" style="font:700 16px var(--f-head)"></b></a><button class="theme-btn" type="button"></button></div>
+  <article class="panel prose" id="doc" style="max-width:none"><p class="muted">Loading…</p></article>
+  <p class="small muted" style="text-align:center" id="foot"><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a> · <a href="/">Back to the journal</a></p>
+</main>
+<script src="/assets/core.js?v=4.0.0"></script>
+<script>
+fetch('/api/site?doc=terms').then(function (r) { return r.json(); }).then(function (s) {
+  document.title = 'Terms and Conditions · ' + s.name;
+  if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+  document.getElementById('name').textContent = s.name;
+  var m = document.getElementById('mark');
+  if (s.logo) { var i = document.createElement('img'); i.src = s.logo; i.alt = ''; i.style.cssText = 'width:32px;height:32px;object-fit:contain;border-radius:8px'; m.replaceWith(i); }
+  else m.textContent = TJ.initials(s.name);
+  document.getElementById('doc').innerHTML = TJ.md(s.text);
+}).catch(function () { document.getElementById('doc').innerHTML = '<p class="alert">Could not load this page.</p>'; });
+</script>
+</body>
+</html>

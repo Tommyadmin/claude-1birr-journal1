@@ -4,33 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
-<title>Wakanda Trade Journal</title>
+<title>Trading Journal</title>
+<link rel="icon" href="/api/media?type=logo">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/assets/app.css?v=2.0.0">
-<script src="/assets/theme.js?v=2.0.0"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/assets/app.css?v=4.0.0">
+<script src="/assets/theme.js?v=4.0.0"></script>
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-in">
-    <a class="brand" href="#today"><span class="eyebrow">Wakanda Trade</span><b>Journal</b></a>
-    <nav class="nav" id="nav">
-      <a href="#today" data-v="today">Today</a>
-      <a href="#journal" data-v="journal">Journal</a>
-      <a href="#stats" data-v="stats">Stats</a>
-      <a href="#calendar" data-v="calendar">Calendar</a>
-      <a href="#settings" data-v="settings">Settings</a>
-    </nav>
-    <div class="row" style="flex-wrap:nowrap;margin-left:auto"><button class="theme-btn" type="button"></button><button class="btn primary" id="newTradeBtn" type="button">+ New trade</button></div>
+<div class="shell">
+  <aside class="side" id="side" aria-label="Main navigation"></aside>
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+    <main class="wrap" id="view"><p class="muted">Loading your journal…</p></main>
+    <footer class="footer" id="footer"></footer>
   </div>
-</header>
-
-<main class="wrap" id="view"><p class="muted">Loading your journal…</p></main>
+</div>
+<nav class="bottombar" id="bottombar" aria-label="Main navigation"></nav>
 
 <dialog id="tradeDlg" class="dlg"></dialog>
+<dialog id="modal" class="dlg sm"></dialog>
 <dialog id="imgDlg" class="dlg img-dlg"><img id="imgFull" alt="Trade screenshot"><button class="btn" id="imgClose" type="button">Close</button></dialog>
 <div id="toast" class="toast" hidden></div>
 
-<script src="/assets/app.js?v=2.0.0"></script>
+<script src="/assets/core.js?v=4.0.0"></script>
+<script src="/assets/trades.js?v=4.0.0"></script>
+<script src="/assets/insights.js?v=4.0.0"></script>
+<script src="/assets/account.js?v=4.0.0"></script>
+<script>TJ.start();</script>
 </body>
 </html>
