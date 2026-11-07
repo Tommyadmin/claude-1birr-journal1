@@ -238,7 +238,7 @@ textarea{min-height:84px;resize:vertical;line-height:1.5}
 table.tbl{width:100%;border-collapse:collapse;font-size:var(--t-sm)}
 .tbl th{text-align:left;font:600 10.5px var(--f-body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--sunk)}
 .tbl td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
-.tbl td.wrap{white-space:normal;min-width:180px}
+.tbl td.tw{white-space:normal;min-width:180px}
 .tbl .n{text-align:right}
 .tbl tr:last-child td{border-bottom:0}
 .tbl tbody tr:hover td{background:color-mix(in srgb,var(--sunk) 70%,transparent)}

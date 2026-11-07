@@ -29,6 +29,10 @@
 <button class="theme-btn" type="button"></button>
 <main class="auth-card">
   <div class="row" id="brand" style="gap:10px"><span class="mono-mark" id="brandMark">·</span><div><b id="brandName" style="font:700 16px var(--f-head)"></b><div class="small muted" id="brandTag"></div></div></div>
+  <div class="segtabs" id="authTabs" role="tablist" style="display:flex" hidden>
+    <button type="button" data-tab="signin" aria-pressed="true" style="flex:1">Sign in</button>
+    <button type="button" data-tab="register" aria-pressed="false" style="flex:1">Create account</button>
+  </div>
   <h1 id="title">Sign in</h1>
   <p class="ok-box" id="ok" hidden></p>
   <p class="alert" id="err" hidden></p>
@@ -147,11 +151,18 @@
   }
   var TITLES = { signin: 'Sign in', register: 'Create your account', check_email: 'Check your email', pending: 'Almost there', phone: 'Add your phone',
     forgot: 'Reset your password', reset: 'Choose a new password', setup: 'Set up your journal' };
+  var regOpen = true;
   function show(panel) {
     document.querySelectorAll('[data-panel]').forEach(function (s) { s.hidden = s.dataset.panel !== panel; });
+    var tabs = $('authTabs');
+    tabs.hidden = !regOpen || (panel !== 'signin' && panel !== 'register');
+    tabs.querySelectorAll('[data-tab]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tab === panel)); });
+    if (panel === 'register' && location.hash !== '#register') history.replaceState(null, '', '#register');
+    if (panel === 'signin' && location.hash === '#register') history.replaceState(null, '', location.pathname);
     $('title').textContent = TITLES[panel] || 'Trading Journal';
     var f = document.querySelector('[data-panel="' + panel + '"] input:not([tabindex="-1"])'); if (f) f.focus();
   }
+  document.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { msg(); show(b.dataset.tab); }; });
   document.querySelectorAll('[data-go]').forEach(function (a) { a.href = '#'; a.onclick = function (e) { e.preventDefault(); msg(); show(a.dataset.go); }; });
 
   function call(action, body) {
@@ -209,7 +220,8 @@
     $('foot').innerHTML = '';
     if (site.footer) $('foot').appendChild(document.createTextNode(site.footer + ' · '));
     $('foot').insertAdjacentHTML('beforeend', '<a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>');
-    if (site.registration_open === false) document.querySelectorAll('[data-go="register"]').forEach(function (a) { a.hidden = true; });
+    regOpen = site.registration_open !== false;
+    if (!regOpen) document.querySelectorAll('[data-go="register"]').forEach(function (a) { a.hidden = true; });
     var hint = document.querySelector('[data-panel="register"] .hint');
     if (hint && site.require_approval === false) hint.textContent = 'We send a link to confirm your email.';
   }
@@ -227,7 +239,7 @@
     }
     if (m === 'phone' || s.needs_phone) return show('phone');
     if (m === 'pending') return show('pending');
-    show('signin');
+    show(regOpen && (location.hash === '#register' || params.has('signup')) ? 'register' : 'signin');
     if (MSGS[m]) msg(MSGS[m][0], MSGS[m][1]);
   }).catch(function (e) { $('loading').hidden = true; msg('err', e.message); });
 

@@ -355,7 +355,7 @@
           '<section class="panel"><div class="panel-head"><h2>Sent</h2></div>' + (j.messages.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Sent</th><th>To</th><th>Title</th><th class="n">Read by</th><th></th></tr></thead><tbody>' +
           j.messages.map(function (m) {
             return '<tr><td class="num small">' + esc(m.created_at) + '</td><td>' + (m.user_id ? esc(m.to_name || '') + '<br><span class="small muted">' + esc(m.to_email || '') + '</span>' : '<span class="pill acc">Everyone</span>') + '</td>' +
-              '<td class="wrap"><b>' + esc(m.title) + '</b>' + (m.body ? '<br><span class="small muted">' + esc(m.body.slice(0, 140)) + (m.body.length > 140 ? '…' : '') + '</span>' : '') + '</td><td class="n num">' + m.reads + '</td>' +
+              '<td class="tw"><b>' + esc(m.title) + '</b>' + (m.body ? '<br><span class="small muted">' + esc(m.body.slice(0, 140)) + (m.body.length > 140 ? '…' : '') + '</span>' : '') + '</td><td class="n num">' + m.reads + '</td>' +
               '<td><button class="btn sm ghost" type="button" data-dm="' + m.id + '">Delete</button></td></tr>';
           }).join('') + '</tbody></table></div>' : '<div class="empty">No messages sent yet.</div>') + '</section>';
         S.msgTo = null;
@@ -372,8 +372,19 @@
 
     site: function (b) {
       T.adminApi('site').then(function (j) {
-        var s = j.site;
-        b.innerHTML = '<form class="panel" id="siteForm"><div class="panel-head"><div><h2>Branding</h2><p>Shown in the sidebar, sign-in page, emails and reports.</p></div></div><div class="fg">' +
+        var s = j.site, ig = j.integrations || {};
+        var row = function (on, name, what, how) {
+          return '<tr><td><span class="pill ' + (on ? 'ok' : 'warn') + '"><span class="dot"></span>' + (on ? 'On' : 'Off') + '</span></td><td><b>' + name + '</b><br><span class="small muted">' + what + '</span></td>' +
+            '<td class="tw small">' + (on ? '<span class="muted">Set up</span>' : how) + '</td></tr>';
+        };
+        b.innerHTML = '<section class="panel"><div class="panel-head"><div><h2>Integrations</h2><p>Set in Vercel > Settings > Environment Variables, then redeploy.</p></div></div>' +
+          '<div class="tbl-wrap"><table class="tbl"><tbody>' +
+          row(ig.google, 'Google sign-in', 'Shows “Continue with Google” on the sign-in and sign-up pages', 'Add <span class="num">GOOGLE_CLIENT_ID</span> and <span class="num">GOOGLE_CLIENT_SECRET</span>. Redirect URI in Google Cloud: <span class="num">' + esc(location.origin) + '/api/google</span>') +
+          row(ig.email, 'Email (Resend)', 'Email confirmation, approvals, password resets, message copies', 'Add <span class="num">RESEND_API_KEY</span> and <span class="num">MAIL_FROM</span>. Without it, new users cannot confirm their email.') +
+          row(ig.blob, 'Screenshot storage (Blob)', 'Stores chart screenshots outside the database', 'Optional. Vercel > Storage > Create > Blob, connect to this project.') +
+          row(ig.admin_email, 'Admin email', 'Receives “new sign-up waiting for approval” emails', 'Add <span class="num">ADMIN_EMAIL</span>.') +
+          '</tbody></table></div><p class="small muted" style="margin:10px 0 0">Sign-up link to share: <b class="num">' + esc(location.origin) + '/login.html#register</b></p></section>' +
+          '<form class="panel" id="siteForm"><div class="panel-head"><div><h2>Branding</h2><p>Shown in the sidebar, sign-in page, emails and reports.</p></div></div><div class="fg">' +
           '<label class="f s2">Website name<input id="sName" value="' + esc(s.name) + '" maxlength="60" required></label>' +
           '<label class="f s2">Tagline<input id="sTag" value="' + esc(s.tagline) + '" maxlength="80" placeholder="e.g. Trading journal"></label>' +
           '<label class="f">Accent color<div class="row" style="flex-wrap:nowrap"><input id="sAcc" type="color" value="' + esc(s.accent) + '"><input id="sAccT" class="num" value="' + esc(s.accent) + '" maxlength="7"></div></label>' +

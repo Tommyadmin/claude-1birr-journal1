@@ -38,6 +38,11 @@ export default async function handler(req, res) {
     if (action === 'site') {
       const s = await getSite(true);
       return send(res, 200, {
+        integrations: {
+          email: !!process.env.RESEND_API_KEY, mail_from: !!process.env.MAIL_FROM,
+          google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+          blob: !!process.env.BLOB_READ_WRITE_TOKEN, admin_email: !!process.env.ADMIN_EMAIL,
+        },
         site: { ...publicSite(s), legal_entity: s.legal_entity, country: s.country,
           terms: s.terms, privacy: s.privacy, terms_default: legalText({ ...s, terms: '' }, 'terms'), privacy_default: legalText({ ...s, privacy: '' }, 'privacy') },
       });
