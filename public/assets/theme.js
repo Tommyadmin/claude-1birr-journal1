@@ -10,7 +10,7 @@
   var root = document.documentElement;
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
-  function get() { try { var v = localStorage.getItem(KEY); return ORDER.indexOf(v) >= 0 ? v : 'auto'; } catch (e) { return 'auto'; } }
+  function get() { try { var v = localStorage.getItem(KEY); return ORDER.indexOf(v) >= 0 ? v : 'dark'; } catch (e) { return 'dark'; } }
   function isDark(mode) { return mode === 'dark' || (mode === 'auto' && mq && mq.matches); }
 
   function apply(mode) {
@@ -25,7 +25,17 @@
     }
   }
 
+  // Site accent color: remembered so it is applied before the page paints.
+  var AKEY = 'wtj-accent';
+  function setAccent(hex, save) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return;
+    root.style.setProperty('--accent', hex);
+    if (save) { try { localStorage.setItem(AKEY, hex); } catch (e) {} }
+  }
+  try { setAccent(localStorage.getItem(AKEY), false); } catch (e) {}
+
   window.wtjTheme = {
+    accent: function (hex) { setAccent(hex, true); },
     get: get,
     set: function (mode) { try { localStorage.setItem(KEY, mode); } catch (e) {} apply(mode); },
     next: function () { var m = ORDER[(ORDER.indexOf(get()) + 1) % ORDER.length]; this.set(m); return m; }

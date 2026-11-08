@@ -7,8 +7,8 @@
 <title>Privacy Policy</title>
 <link rel="icon" href="/api/media?type=logo">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/assets/app.css?v=6.0.0">
-<script src="/assets/theme.js?v=6.0.0"></script>
+<link rel="stylesheet" href="/assets/app.css?v=7.0.0">
+<script src="/assets/theme.js?v=7.0.0"></script>
 </head>
 <body>
 <main class="wrap" style="max-width:820px">
@@ -17,7 +17,7 @@
   <div class="row" style="justify-content:center"><button class="btn" type="button" id="back2">← Back</button></div>
   <p class="small muted" style="text-align:center" id="foot"><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a> · <a href="/">Home</a></p>
 </main>
-<script src="/assets/core.js?v=6.0.0"></script>
+<script src="/assets/core.js?v=7.0.0"></script>
 <script>
 // Back: previous page in this tab; if this page was opened in a new tab, close it; otherwise go home.
 function goBack() {
@@ -30,7 +30,7 @@ document.getElementById('back').onclick = goBack;
 document.getElementById('back2').onclick = goBack;
 fetch('/api/site?doc=privacy').then(function (r) { return r.json(); }).then(function (s) {
   document.title = 'Privacy Policy · ' + s.name;
-  if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+  if (s.accent) wtjTheme.accent(s.accent);
   document.getElementById('name').textContent = s.name;
   var m = document.getElementById('mark');
   if (s.logo) { var i = document.createElement('img'); i.src = s.logo; i.alt = ''; i.style.cssText = 'width:32px;height:32px;object-fit:contain;border-radius:8px'; m.replaceWith(i); }

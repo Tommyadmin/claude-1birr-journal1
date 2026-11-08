@@ -8,8 +8,8 @@
 <link rel="icon" href="/api/media?type=logo">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/assets/app.css?v=6.0.0">
-<script src="/assets/theme.js?v=6.0.0"></script>
+<link rel="stylesheet" href="/assets/app.css?v=7.0.0">
+<script src="/assets/theme.js?v=7.0.0"></script>
 <style>
   .auth-card{width:min(420px,100%)}
   .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:600 15px var(--f-body);text-decoration:none;cursor:pointer}
@@ -217,7 +217,7 @@
   function brand(site) {
     site = site || {};
     document.title = (site.name || 'Trading journal') + ' · Sign in';
-    if (site.accent) document.documentElement.style.setProperty('--accent', site.accent);
+    if (site.accent) wtjTheme.accent(site.accent);
     $('brandName').textContent = site.name || '';
     $('brandTag').textContent = site.tagline || '';
     var mk = $('brandMark');

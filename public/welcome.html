@@ -10,8 +10,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/assets/app.css?v=6.0.0">
-<script src="/assets/theme.js?v=6.0.0"></script>
+<link rel="stylesheet" href="/assets/app.css?v=7.0.0">
+<script src="/assets/theme.js?v=7.0.0"></script>
 <style>
   /* Landing: dark trading-floor hero, then light sections */
   .lp{min-height:100vh;display:flex;flex-direction:column}
@@ -138,7 +138,7 @@
   </div><div class="lp-in"><p class="disclaimer">Trading involves substantial risk of loss. This journal records and analyzes your own trades; it does not give financial advice or trading signals.</p></div></footer>
 </div>
 
-<script src="/assets/core.js?v=6.0.0"></script>
+<script src="/assets/core.js?v=7.0.0"></script>
 <script>
 (function () {
   var T = window.TJ, esc = T.esc, $ = function (id) { return document.getElementById(id); };
@@ -209,8 +209,8 @@
   }
 
   fetch('/api/site?doc=landing').then(function (r) { return r.json(); }).then(function (s) {
-    var accent = s.accent || '#b07d12';
-    document.documentElement.style.setProperty('--accent', accent);
+    var accent = s.accent || '#2563eb';
+    wtjTheme.accent(accent);
     document.title = s.name + (s.tagline ? ' · ' + s.tagline : '');
     $('bName').textContent = s.name; $('bTag').textContent = s.tagline || '';
     if (s.logo) { var im = document.createElement('img'); im.src = s.logo; im.alt = ''; $('mark').replaceWith(im); } else $('mark').textContent = T.initials(s.name);
@@ -247,7 +247,7 @@
         order.map(function (f) { return '<li class="' + (p.features[f] ? '' : 'off') + '"><span class="' + (p.features[f] ? 'pos' : '') + '">' + (p.features[f] ? '✓' : '—') + '</span>' + esc(F[f] || f) + '</li>'; }).join('') + '</ul>' +
         '<a class="btn ' + (p.highlight ? 'primary' : '') + '" href="/login.html#register" style="margin-top:auto">' + (td ? 'Start free trial' : 'Choose ' + esc(p.name)) + '</a></div>';
     }).join('');
-  }).catch(function () { drawChart('#b07d12'); });
+  }).catch(function () { drawChart(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2563eb'); });
 })();
 </script>
 </body>

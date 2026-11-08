@@ -95,28 +95,74 @@
   }
 
   // ================= DASHBOARD =================
+  var GROUPS = [['pair', 'Instrument'], ['strategy', 'Strategy'], ['session', 'Session']];
+  S.dgroup = T.store('tj-dgroup') || 'pair';
+  function breakdown(list) {
+    var key = S.dgroup, label = (GROUPS.find(function (g) { return g[0] === key; }) || GROUPS[0])[1];
+    var g = T.groupBy(list, function (t) { return key === 'session' ? T.windowName(t.session) : (t[key] || (key === 'pair' ? 'Unknown' : 'No strategy')); });
+    var rows = Object.keys(g).map(function (k) { return { k: k, a: T.aggregate(g[k]) }; }).sort(function (x, y) { return y.a.n - x.a.n || y.a.pnl - x.a.pnl; });
+    var total = list.length || 1;
+    var body = rows.length ? rows.map(function (r) {
+      var share = r.a.n / total, wr = r.a.wr;
+      return '<tr><td><span class="sym">' + T.coin(r.k) + esc(r.k) + '</span></td>' +
+        '<td class="num">' + r.a.n + '</td>' +
+        '<td><div class="alloc"><span class="trk"><i style="width:' + Math.round((wr || 0) * 100) + '%"></i></span><span class="num">' + T.pct(wr) + '</span></div></td>' +
+        '<td class="num">' + T.pct(share) + '</td>' +
+        '<td class="num ' + T.cls(r.a.expR) + '">' + T.rfmt(r.a.expR) + '</td>' +
+        '<td class="num n ' + T.cls(r.a.pnl) + '"><b>' + T.money(r.a.pnl, true) + '</b></td></tr>';
+    }).join('') : '<tr><td colspan="6"><div class="empty">No trades in this period.</div></td></tr>';
+    return '<section class="panel flush"><div class="panel-head"><h2>Breakdown <span class="muted">(' + rows.length + ')</span></h2>' +
+      '<div class="segtabs" role="group" aria-label="Group by">' + GROUPS.map(function (x) { return '<button type="button" data-dg="' + x[0] + '" aria-pressed="' + (key === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>' + label + '</th><th>Trades</th><th style="min-width:220px">Win rate</th><th>Share</th><th>Avg R</th><th class="n">Net P&amp;L</th></tr></thead><tbody>' + body + '</tbody></table></div></section>';
+  }
+
+  function statCard(icon, label, value, sub, link, linkText, cls, big) {
+    return '<div class="panel stat' + (big ? ' big' : '') + '"><span class="tile">' + T.icon(icon) + '</span><div style="min-width:0"><div class="lbl">' + label + '</div>' +
+      '<div class="val ' + (cls || '') + '">' + value + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' +
+      (link ? '<a class="go" href="' + link + '">' + linkText + ' →</a>' : '') + '</div>';
+  }
+
   T.views.dashboard = function (el) {
     var all = T.scoped(), list = inPeriod(all, S.period), a = T.aggregate(list);
     var obs = observations(list);
     var pending = S.trades.filter(function (t) { return t._.pending; }).length;
-    var hello = (S.user.name || '').split(' ')[0];
-    el.innerHTML =
-      '<div class="page-head"><div><div class="eyebrow">' + T.fmtDate(T.todayStr(), { weekday: 'long', day: 'numeric', month: 'long' }) + '</div><h1>' + (hello ? 'Welcome back, ' + esc(hello) : 'Dashboard') + '</h1></div>' +
-      '<div class="row">' + T.scopeSwitch() + periodSwitch(S.period) + '</div></div>' +
+    var grossW = list.filter(function (t) { return t.pnl > 0; }).reduce(function (s, t) { return s + t.pnl; }, 0);
+    var grossL = list.filter(function (t) { return t.pnl < 0; }).reduce(function (s, t) { return s + t.pnl; }, 0);
+    var base = S.settings.start_balance || 0;
+    var pf = a.pf == null ? '—' : a.pf === Infinity ? '∞' : a.pf.toFixed(2);
+    var pname = { week: 'this week', month: 'this month', '30': 'the last 30 days', '90': 'the last 90 days', year: 'this year', all: 'all time' }[S.period];
+    el.innerHTML = T.insightHead('dashboard') +
       T.planBanner() + (pending ? '<a class="notice" href="#trades" id="revLink"><b>' + pending + ' synced trade' + (pending > 1 ? 's' : '') + ' to review.</b> Add your checklist, emotions and notes so they count in your analysis.</a>' : '') +
       (!S.trades.length ? '<div class="banner info">Start by logging your first trade, importing a CSV, or connecting MT5 in Settings.</div>' : '') +
-      kpiBlock(a) +
+      '<div class="page-head"><div><h1>Summary</h1><p>A quick summary of your ' + esc(T.scopeName(S.scope).toLowerCase()) + ' for ' + pname + '</p></div>' + periodSwitch(S.period) + '</div>' +
+      '<div class="sum">' +
+      '<div class="panel donut-card">' + T.donut([{ v: a.W, color: 'var(--win)', label: 'Wins' }, { v: a.L, color: 'var(--loss)', label: 'Losses' }, { v: a.B, color: 'var(--faint)', label: 'Breakeven' }], T.pct(a.wr), 'win rate') +
+      '<div class="dleg"><div><i style="background:var(--win)"></i>Wins <span class="num">(' + a.W + ')</span></div><div><i style="background:var(--loss)"></i>Losses <span class="num">(' + a.L + ')</span></div>' + (a.B ? '<div><i style="background:var(--faint)"></i>Breakeven <span class="num">(' + a.B + ')</span></div>' : '') +
+      '<hr><div class="lbl">Net P&amp;L</div><div class="val num-h ' + T.cls(a.pnl) + '">' + T.money(a.pnl, true) + '</div><div class="sub">' + a.n + ' trades</div></div></div>' +
+      '<div class="sum-r">' +
+      statCard('up', 'Gross profit', T.money(grossW), a.W + ' winning trades · avg ' + T.money(a.avgW, false), '#trades', 'View', 'pos') +
+      statCard('down', 'Gross loss', T.money(grossL), a.L + ' losing trades · avg ' + T.money(a.avgL, false), '#trades', 'View', 'neg') +
+      '<div class="wide">' + statCard('trend', 'Overall P&amp;L', T.money(a.pnl, true), (S.scope === 'live' && base ? T.pct(a.pnl / base, 2) + ' of starting balance · ' : '') + 'Profit factor ' + pf + ' · Expectancy ' + (a.exp == null ? '—' : T.money(a.exp, true)), '#analytics', 'See analytics', T.cls(a.pnl), true) + '</div>' +
+      '</div></div>' +
+      '<div class="kpis">' +
+      T.kpi('Avg planned RR', a.avgRR == null ? '—' : '1:' + a.avgRR.toFixed(2), 'From entry, SL and TP') +
+      T.kpi('Avg R / trade', T.rfmt(a.expR), 'Net ' + T.rfmt(a.R), T.cls(a.expR)) +
+      T.kpi('Max drawdown', a.mdd ? '-' + T.money(a.mdd) : T.money(0), T.pct(a.mddPct, 1) + ' from peak', a.mdd ? 'neg' : '') +
+      T.kpi('Best day', a.bestDay ? T.money(a.bestDay.v, true) : '—', a.bestDay ? T.fmtDate(a.bestDay.d, { day: 'numeric', month: 'short', year: 'numeric' }) : '', a.bestDay ? T.cls(a.bestDay.v) : '') +
+      T.kpi('Worst day', a.worstDay ? T.money(a.worstDay.v, true) : '—', a.worstDay ? T.fmtDate(a.worstDay.d, { day: 'numeric', month: 'short', year: 'numeric' }) : '', a.worstDay ? T.cls(a.worstDay.v) : '') +
+      T.kpi('Streaks', a.streakW + 'W / ' + a.streakL + 'L', 'Longest win / loss run') +
+      T.kpi('Fees', T.money(-a.fees), 'Commission and swap', a.fees > 0 ? 'neg' : '') +
+      '</div>' +
       '<div class="grid g-main">' +
       '<section class="panel chart"><div class="panel-head"><div><h2>' + (S.scope === 'live' ? 'Equity curve' : 'Cumulative P&amp;L') + '</h2><p>' + (S.scope === 'live' ? 'Balance ' + T.money(S.balance) : list.length + ' trades') + '</p></div></div>' + T.equitySvg(list) + '</section>' +
       '<div class="grid"><section class="panel"><div class="panel-head"><h2>Goals</h2></div>' + goalBars(S.trades) + '</section>' +
       '<section class="panel"><div class="panel-head"><div><h2>Observations</h2><p>Patterns in your own data, not trading signals</p></div></div>' +
       (obs.length ? '<ul class="steps" style="margin:0">' + obs.map(function (o) { return '<li>' + o + '</li>'; }).join('') + '</ul>' : '<p class="small muted" style="margin:0">Log at least 5 trades per group (window, strategy, emotion) to see patterns here.</p>') +
       '</section></div></div>' +
-      '<div class="grid g2">' +
-      '<section class="panel"><div class="panel-head"><h2>By strategy</h2><a class="btn ghost sm" href="#analytics">All analytics</a></div>' + T.groupTable(T.groupBy(list, function (t) { return t.strategy || 'No strategy'; }), 'Strategy') + '</section>' +
-      '<section class="panel"><div class="panel-head"><h2>Recent trades</h2><a class="btn ghost sm" href="#trades">All trades</a></div>' + T.tradeRows(all.slice(-6).reverse(), 'No trades yet.') + '</section>' +
-      '</div>';
-    T.bindScope(el); bindPeriod(el); T.bindRows(el);
+      breakdown(list) +
+      '<section class="panel"><div class="panel-head"><h2>Recent trades</h2><a class="btn ghost sm" href="#trades">All trades →</a></div>' + T.tradeRows(all.slice(-6).reverse(), 'No trades yet.') + '</section>';
+    T.bindInsightHead(el); bindPeriod(el); T.bindRows(el);
+    $$('[data-dg]', el).forEach(function (b) { b.onclick = function () { S.dgroup = b.dataset.dg; T.store('tj-dgroup', S.dgroup); T.render(); }; });
     var rl = $('#revLink', el); if (rl) rl.onclick = function () { S.scope = 'all'; };
   };
 
@@ -158,9 +204,9 @@
     var yr = S.calMonth.slice(0, 4), months = [];
     for (var m = 1; m <= 12; m++) { var mk = yr + '-' + T.pad(m); var ml = all.filter(function (t) { return t.trade_date.slice(0, 7) === mk; }); months.push({ k: mk, n: ml.length, pnl: ml.reduce(function (s2, t) { return s2 + t.pnl; }, 0) }); }
     var sel = S.calSel && byDay[S.calSel] ? byDay[S.calSel].list : [];
-    el.innerHTML =
+    el.innerHTML = T.insightHead('calendar') +
       '<div class="page-head"><div><div class="eyebrow">Daily P&amp;L</div><h1>' + T.fmtDate(S.calMonth + '-01', { month: 'long', year: 'numeric' }) + '</h1></div>' +
-      '<div class="row">' + T.scopeSwitch() + '<button class="btn" id="calPrev" aria-label="Previous month">‹</button><button class="btn" id="calToday">This month</button><button class="btn" id="calNext" aria-label="Next month">›</button></div></div>' +
+      '<div class="row"><button class="btn" id="calPrev" aria-label="Previous month">‹</button><button class="btn" id="calToday">This month</button><button class="btn" id="calNext" aria-label="Next month">›</button></div></div>' +
       '<div class="kpis">' +
       T.kpi('Month P&amp;L', T.money(ma.pnl, true), ma.n + ' trades', T.cls(ma.pnl)) +
       T.kpi('Win rate', T.pct(ma.wr)) +
@@ -181,7 +227,7 @@
     $('#calToday', el).onclick = function () { S.calMonth = ds.slice(0, 7); S.calSel = ds; T.render(); };
     $$('.day[data-d]', el).forEach(function (c) { if (c.dataset.d) c.onclick = function () { S.calSel = c.dataset.d; T.render(); }; });
     $$('[data-m]', el).forEach(function (r) { r.onclick = function () { S.calMonth = r.dataset.m; S.calSel = null; T.render(); }; });
-    T.bindScope(el); T.bindRows(el); bindNote(el);
+    T.bindInsightHead(el); T.bindRows(el); bindNote(el);
   };
   function dayPanel(day, list) {
     var a = T.aggregate(list);
@@ -206,13 +252,13 @@
   S.atab = T.store('tj-atab') || 'overview';
   var ATABS = [['overview', 'Overview'], ['strategies', 'Strategies'], ['psychology', 'Psychology'], ['mistakes', 'Mistakes'], ['time', 'Sessions & time'], ['risk', 'Risk'], ['rules', 'Rules']];
   T.views.analytics = function (el) {
-    if (!T.can('analytics')) { el.innerHTML = '<div class="page-head"><div><h1>Analytics</h1></div></div>' + T.lockedPanel('analytics'); return; }
+    if (!T.can('analytics')) { el.innerHTML = T.insightHead('analytics') + '<div class="page-head"><div><h1>Analytics</h1></div></div>' + T.lockedPanel('analytics'); T.bindInsightHead(el); return; }
     var list = inPeriod(T.scoped(), S.period);
-    el.innerHTML = '<div class="page-head"><div><h1>Analytics</h1><p>' + list.length + ' trades · ' + (S.scope === 'all' ? 'all accounts' : S.scope) + '</p></div><div class="row">' + T.scopeSwitch() + periodSwitch(S.period) + '</div></div>' +
+    el.innerHTML = T.insightHead('analytics') + '<div class="page-head"><div><h1>Analytics</h1><p>' + list.length + ' trades · ' + (S.scope === 'all' ? 'all accounts' : S.scope) + '</p></div><div class="row">' + periodSwitch(S.period) + '</div></div>' +
       '<div class="tabs" role="tablist">' + ATABS.map(function (t) { return '<button class="tab" role="tab" data-at="' + t[0] + '" aria-selected="' + (S.atab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div>' +
       '<div id="aBody" class="grid"></div>';
     $$('[data-at]', el).forEach(function (b) { b.onclick = function () { S.atab = b.dataset.at; T.store('tj-atab', S.atab); T.render(); }; });
-    T.bindScope(el); bindPeriod(el);
+    T.bindInsightHead(el); bindPeriod(el);
     var body = $('#aBody', el);
     if (!list.length) { body.innerHTML = '<section class="panel"><div class="empty">No trades in this period.</div></section>'; return; }
     body.innerHTML = (A[S.atab] || A.overview)(list);
@@ -351,7 +397,7 @@
     return [R.from || t.slice(0, 8) + '01', R.to || t];
   }
   T.views.reports = function (el) {
-    if (!T.can('reports')) { el.innerHTML = '<div class="page-head"><div><h1>Reports</h1></div></div>' + T.lockedPanel('reports'); return; }
+    if (!T.can('reports')) { el.innerHTML = T.insightHead('reports') + '<div class="page-head"><div><h1>Reports</h1></div></div>' + T.lockedPanel('reports'); T.bindInsightHead(el); return; }
     var rg = presetRange(R.preset), from = rg[0], to = rg[1];
     var list = T.scoped().filter(function (t) { return t.trade_date >= from && t.trade_date <= to && (!R.strategy || t.strategy === R.strategy); });
     var a = T.aggregate(list), s = S.site || {};
@@ -362,7 +408,7 @@
     var notes = Object.keys(S.notes).filter(function (d) { return d >= from && d <= to; }).sort();
     var opt = T.opt;
     el.innerHTML =
-      '<div class="page-head no-print"><div><h1>Reports</h1><p>Pick a period, then print or save as PDF</p></div><div class="row">' + T.scopeSwitch() + '</div></div>' +
+      T.insightHead('reports') + '<div class="page-head no-print"><div><h1>Reports</h1><p>Pick a period, then print or save as PDF</p></div></div>' +
       '<section class="panel no-print"><div class="fg">' +
       '<label class="f">Period<select id="rPre">' + opt([['today', 'Today'], ['week', 'This week'], ['lastweek', 'Last week'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['custom', 'Custom range']], R.preset) + '</select></label>' +
       '<label class="f">From<input id="rFrom" type="date" value="' + from + '"' + (R.preset === 'custom' ? '' : ' disabled') + '></label>' +
@@ -394,7 +440,7 @@
     var upd = function () { R.preset = $('#rPre').value; R.from = $('#rFrom').value; R.to = $('#rTo').value; R.strategy = $('#rStrat').value; T.render(); };
     ['#rPre', '#rFrom', '#rTo', '#rStrat'].forEach(function (s2) { $(s2, el).onchange = upd; });
     $('#rPrint', el).onclick = function () { window.print(); };
-    T.bindScope(el);
+    T.bindInsightHead(el);
   };
 
   // ================= PLAN & NOTES =================

@@ -466,6 +466,7 @@
         var afterSite = function (site) { S.site = site; T.applySite(); T.renderShell(); AD.site(b); };
         $('#siteForm', b).onsubmit = function (e) {
           e.preventDefault();
+          if (window.wtjTheme) wtjTheme.accent($('#sAccT').value);
           T.adminApi('save_site', { name: $('#sName').value, tagline: $('#sTag').value, accent: $('#sAccT').value, support_email: $('#sMail').value, footer: $('#sFoot').value,
             registration_open: $('#sOpen').checked ? '1' : '0', require_approval: $('#sAppr').checked ? '1' : '0', legal_entity: $('#sEnt').value, country: $('#sCountry').value,
             terms: $('#sTerms').value, privacy: $('#sPriv').value, landing_title: $('#lTitle').value, landing_text: $('#lText').value, quotes: $('#lQuotes').value })

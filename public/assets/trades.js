@@ -135,7 +135,7 @@
     var ag = T.aggregate(list.slice().sort(sorters.old));
     var p = S.prefs;
     el.innerHTML =
-      '<div class="page-head"><div><h1>Trades</h1><p>' + all.length + ' trades in ' + (S.scope === 'all' ? 'all accounts' : S.scope + ' account') + ' ' + T.tradeLimitNote() + '</p></div>' +
+      '<div class="page-head"><div><h1>Journal</h1><p>' + all.length + ' trades in ' + (S.scope === 'all' ? 'all accounts' : S.scope + ' account') + ' ' + T.tradeLimitNote() + '</p></div>' +
       '<div class="row">' + T.scopeSwitch() + '<button class="btn" id="impBtn" type="button">' + T.icon('upload') + 'Import</button>' +
       '<a class="btn" id="expBtn" href="#">' + T.icon('download') + 'Export CSV</a><button class="btn primary" type="button" data-new2>' + T.icon('plus') + 'New trade</button></div></div>' +
       '<section class="panel"><div class="filters">' +

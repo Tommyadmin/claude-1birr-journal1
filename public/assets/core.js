@@ -141,7 +141,7 @@
       S.trades = j.trades; S.settings = j.settings; S.prefs = j.prefs; S.user = j.user; S.site = j.site;
       S.inbox = j.inbox || []; S.notes = {}; (j.notes || []).forEach(function (n) { S.notes[n.day] = n.text; });
       S.csrf = j.csrf; S.mt5 = j.mt5 || {}; S.adminPending = j.admin_pending || 0; S.ent = j.ent || { features: {}, limits: {} }; S.monthTrades = j.trades_this_month || 0;
-      S.skew = j.ts * 1000 - Date.now(); S.tzoff = j.tz_offset;
+      S.loadedAt = new Date().toISOString(); S.skew = j.ts * 1000 - Date.now(); S.tzoff = j.tz_offset;
       fmtCache = {};
       T.applySite();
       T.derive();
@@ -151,7 +151,7 @@
   T.applySite = function () {
     var s = S.site || {};
     document.title = s.name || 'Trade Journal';
-    if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+    if (s.accent) wtjTheme.accent(s.accent);
   };
 
   // ---------- trading windows & rules ----------
@@ -314,6 +314,12 @@
     billing: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
     more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2M3 12A9 9 0 0 1 18.5 5.8"/><path d="M21 4v5h-5M3 20v-5h5"/>',
+    up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+    down: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+    trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
@@ -323,13 +329,12 @@
   T.icon = function (k) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (IC[k] || '') + '</svg>'; };
 
   var NAV = [
-    { sec: 'Trading' },
-    { v: 'dashboard', l: 'Dashboard' }, { v: 'today', l: 'Today' }, { v: 'trades', l: 'Trades' }, { v: 'calendar', l: 'Calendar' },
-    { sec: 'Insights' },
+    { v: 'dashboard', l: 'Dashboard' }, { v: 'today', l: 'Today' }, { v: 'trades', l: 'Journal' }, { v: 'calendar', l: 'Calendar' },
     { v: 'analytics', l: 'Analytics' }, { v: 'reports', l: 'Reports' }, { v: 'plan', l: 'Plan & notes' },
     { sec: 'Account' },
     { v: 'inbox', l: 'Inbox' }, { v: 'billing', l: 'Subscription' }, { v: 'profile', l: 'Profile' }, { v: 'settings', l: 'Settings' }, { v: 'admin', l: 'Admin', admin: true }
   ];
+  var SCOPES = [['live', 'Live account', 'L'], ['demo', 'Demo account', 'D'], ['backtest', 'Backtest', 'B'], ['all', 'All accounts', 'A']];
   T.unread = function () { return (S.inbox || []).filter(function (m) { return !m.read; }).length; };
 
   function brandHtml() {
@@ -346,31 +351,153 @@
     return (s.footer ? esc(s.footer) + ' · ' : '') + '<a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a>';
   }
 
+  // Small round "coin" marker, colored per name (used for accounts and symbols).
+  var COIN_COLORS = ['#f7a600', '#2f80ed', '#3bc8e7', '#8b5cf6', '#ef5d73', '#22c08a', '#f97316', '#6366f1'];
+  T.coin = function (name, cls, color) {
+    var str = String(name || '?'), h = 0;
+    for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+    return '<span class="coin ' + (cls || '') + '" style="background:' + (color || COIN_COLORS[h % COIN_COLORS.length]) + '">' + esc(str.replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?') + '</span>';
+  };
+  var SCOPE_COLOR = { live: '#f7a600', demo: '#3bc8e7', backtest: '#8b5cf6', all: '#2f80ed' };
+  T.scopeCoin = function (k, cls) { var sc = SCOPES.find(function (x) { return x[0] === k; }) || SCOPES[0]; return T.coin(sc[2], cls, SCOPE_COLOR[k]); };
+  T.scopeName = function (k) { return (SCOPES.find(function (x) { return x[0] === k; }) || SCOPES[0])[1]; };
+
+  // Live P&L since a date (inclusive)
+  T.sumLive = function (from) {
+    var t = T.todayStr();
+    return S.trades.filter(function (x) { return (x.account_type || 'live') === 'live' && x.trade_date >= from && x.trade_date <= t; }).reduce(function (s, x) { return s + x.pnl; }, 0);
+  };
+
+  // Simple pop-up menu next to a button. items: [{l, href}|{l, fn}|{sep:true}|{html}]
+  T.menu = function (btn, items) {
+    var old = document.querySelector('.menu'); if (old) { var same = old._btn === btn; old.remove(); if (same) return; }
+    var m = document.createElement('div'); m.className = 'menu'; m._btn = btn; m.setAttribute('role', 'menu');
+    m.innerHTML = items.map(function (it, i) {
+      if (it.sep) return '<hr>';
+      if (it.html) return '<div class="menu-x">' + it.html + '</div>';
+      return it.href ? '<a role="menuitem" href="' + it.href + '"' + (it.dl ? ' download' : '') + '>' + (it.icon ? T.icon(it.icon) : '') + esc(it.l) + '</a>'
+        : '<button role="menuitem" type="button" data-mi="' + i + '">' + (it.icon ? T.icon(it.icon) : '') + esc(it.l) + '</button>';
+    }).join('');
+    document.body.appendChild(m);
+    var r = btn.getBoundingClientRect(), w = m.offsetWidth;
+    m.style.top = (r.bottom + window.scrollY + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+    m.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-mi]'); if (b) { m.remove(); items[+b.dataset.mi].fn(); return; }
+      if (e.target.closest('a')) m.remove();
+    });
+    setTimeout(function () {
+      var off = function (e) { if (!m.contains(e.target) && e.target !== btn && !btn.contains(e.target)) { m.remove(); document.removeEventListener('click', off, true); } };
+      document.addEventListener('click', off, true);
+    }, 0);
+  };
+  function userMenu(btn) {
+    T.menu(btn, [
+      { html: '<b>' + esc(S.user.name) + '</b><small>' + esc(S.user.email) + '</small><div style="margin-top:8px">' + T.planBadge() + '</div>' },
+      { sep: true },
+      { l: 'Profile', href: '#profile', icon: 'profile' }, { l: 'Settings', href: '#settings', icon: 'settings' }, { l: 'Subscription', href: '#billing', icon: 'billing' },
+      { sep: true },
+      { l: 'Sign out', href: '/api/auth?action=logout', icon: 'logout' }
+    ]);
+  }
+
+  T.setScope = function (k) { S.scope = k; store('tj-scope', k); T.renderShell(); T.render(); };
+
   T.renderShell = function () {
-    var admin = S.user.role === 'admin', un = T.unread();
-    var items = NAV.filter(function (n) { return !n.admin || admin; }).map(function (n) {
-      if (n.sec) return '<div class="navsec">' + n.sec + '</div>';
+    var admin = S.user.role === 'admin', un = T.unread(), s = S.site || {};
+    var navA = function (n) {
       return '<a class="nav-a" href="#' + n.v + '" data-v="' + n.v + '">' + T.icon(n.v) + '<span>' + n.l + '</span>' + (n.v === 'inbox' && un ? '<span class="badge">' + un + '</span>' : '') + (n.v === 'admin' && S.adminPending ? '<span class="badge" title="Waiting for approval">' + S.adminPending + '</span>' : '') + '</a>';
+    };
+    var acctIdx = NAV.findIndex(function (n) { return n.sec; });
+    var main = NAV.slice(0, acctIdx).map(navA).join('');
+    var acct = NAV.slice(acctIdx + 1).filter(function (n) { return !n.admin || admin; }).map(navA).join('');
+    var counts = {}; S.trades.forEach(function (t) { var k = t.account_type || 'live'; counts[k] = (counts[k] || 0) + 1; });
+    counts.all = S.trades.length;
+    var scopes = SCOPES.map(function (sc) {
+      return '<button type="button" class="scope-a' + (S.scope === sc[0] ? ' on' : '') + '" data-scope-side="' + sc[0] + '">' + T.scopeCoin(sc[0]) +
+        '<span><b>' + sc[1] + '</b><small>' + (counts[sc[0]] || 0) + ' trade' + (counts[sc[0]] === 1 ? '' : 's') + '</small></span></button>';
     }).join('');
     $('#side').innerHTML = brandHtml() +
-      '<button class="btn primary" type="button" data-new style="margin:0 4px 8px">' + T.icon('plus') + 'New trade</button>' +
-      '<nav class="navlist">' + items + '</nav>' +
-      '<div class="side-foot"><a class="me" href="#profile">' + T.avatarHtml() + '<div><b>' + esc(S.user.name) + '</b><small>' + esc(S.user.email) + '</small></div></a>' +
-      '<div style="padding:0 8px">' + T.planBadge() + '</div>' +
-      '<div class="side-tools"><button class="theme-btn" type="button"></button><a class="btn ghost sm" href="/api/auth?action=logout">' + T.icon('logout') + 'Sign out</a></div>' +
-      '<div class="legal">' + legalLinks() + '</div></div>';
-    $('#topbar').innerHTML = brandHtml() +
-      '<a class="iconbtn" href="#inbox" aria-label="Inbox">' + T.icon('bell') + (un ? '<span class="badge">' + un + '</span>' : '') + '</a>' +
-      '<button class="theme-btn" type="button"></button>' +
-      '<a href="#profile" aria-label="Profile">' + T.avatarHtml() + '</a>';
+      '<a class="acct-card" href="#dashboard" title="Live account balance"><span class="ic">' + T.icon('home') + '</span><span style="min-width:0"><b class="num">' + T.money(S.balance) + '</b><small>Live balance · ' + (counts.live || 0) + ' trades</small></span></a>' +
+      '<nav class="navlist">' + main + '</nav>' +
+      '<div class="navsec"><span>Your accounts</span></div><div class="navlist">' + scopes + '</div>' +
+      '<div class="side-hr"></div><nav class="navlist">' + acct + '</nav>' +
+      '<div class="side-hr"></div><div class="legal">' + legalLinks() + '<br>© ' + new Date().getFullYear() + ' ' + esc(s.name || '') + '</div>';
+    var t = T.todayStr(), mo = T.sumLive(t.slice(0, 8) + '01'), td = T.sumLive(t), wk = T.sumLive(T.weekStart(t));
+    var tick = function (lbl, v, color, ch) { return '<span class="tick">' + T.coin(ch, '', color) + '<b class="' + T.cls(v) + '">' + T.money(v, true) + '</b><small>' + lbl + '</small></span>'; };
+    $('#topbar').innerHTML = '<div class="tb-brand">' + brandHtml() + '</div>' +
+      '<div class="ticks">' + tick('Today', td, '#f7a600', 'D') + tick('This week', wk, '#2f80ed', 'W') + tick('This month', mo, '#8b5cf6', 'M') + '</div>' +
+      '<div class="tb-right"><button class="btn primary tb-new" type="button" data-new>' + T.icon('plus') + 'New trade</button>' +
+      '<a class="ibtn" href="#inbox" aria-label="Inbox">' + T.icon('bell') + (un ? '<span class="badge">' + un + '</span>' : '') + '</a>' +
+      '<button class="theme-btn ibtn" type="button"></button>' +
+      '<button class="ibtn av-btn" type="button" id="meBtn" aria-label="Account menu">' + T.avatarHtml(null, 'me-av') + '</button></div>';
     $('#bottombar').innerHTML = ['dashboard', 'today', 'trades', 'calendar'].map(function (v) {
       return '<a href="#' + v + '" data-v="' + v + '">' + T.icon(v) + '<span>' + NAV.find(function (n) { return n.v === v; }).l + '</span></a>';
     }).join('') + '<button type="button" id="moreBtn" data-v="more">' + T.icon('more') + '<span>More</span>' + (un ? '<span class="badge">' + un + '</span>' : '') + '</button>';
     $('#footer').innerHTML = legalLinks();
     T.$$('[data-new]').forEach(function (b) { b.onclick = function () { T.openTrade(null); }; });
+    T.$$('[data-scope-side]').forEach(function (b) { b.onclick = function () { T.setScope(b.dataset.scopeSide); if (S.view !== 'dashboard' && ['trades', 'calendar', 'analytics', 'reports'].indexOf(S.view) < 0) location.hash = '#dashboard'; }; });
+    $('#meBtn').onclick = function () { userMenu(this); };
     $('#moreBtn').onclick = openMore;
     if (window.wtjTheme) window.wtjTheme.set(window.wtjTheme.get());
     markNav();
+  };
+
+  // Account header + section tabs shared by Dashboard, Calendar, Analytics and Reports.
+  var ITABS = [['dashboard', 'Summary', 'dashboard'], ['calendar', 'Calendar', 'calendar'], ['analytics', 'Analytics', 'analytics'], ['reports', 'Reporting', 'reports']];
+  function ago(str) {
+    if (!str) return '';
+    var d = new Date(String(str).replace(' ', 'T')); if (isNaN(d)) return str;
+    var m = Math.round((Date.now() - d.getTime()) / 60000);
+    if (m < 1) return 'just now'; if (m < 60) return m + ' min' + (m > 1 ? 's' : '') + ' ago';
+    var h = Math.round(m / 60); if (h < 24) return h + ' hour' + (h > 1 ? 's' : '') + ' ago';
+    var dd = Math.round(h / 24); return dd + ' day' + (dd > 1 ? 's' : '') + ' ago';
+  }
+  T.insightHead = function (view) {
+    var sc = S.scope, list = T.scoped(), m5 = S.mt5 || {};
+    var value = sc === 'live' ? S.balance : list.reduce(function (s, t) { return s + t.pnl; }, 0);
+    var src = sc === 'live' || sc === 'all' ? (m5.last_account ? 'MT5 · ' + m5.last_account : 'Manual journal') : (sc === 'demo' ? 'Practice trades' : 'Strategy testing');
+    var upd = m5.last_sync ? 'Last sync: ' + ago(m5.last_sync) : 'Updated ' + ago(S.loadedAt);
+    return '<div class="ihead no-print"><div class="hero">' + T.scopeCoin(sc, 'xl') +
+      '<div style="min-width:0"><div class="t1">' + esc(T.scopeName(sc)) + ' <span class="sep">•</span> <span class="muted">' + esc(src) + '</span></div>' +
+      '<div class="t2"><span class="num-h ' + (sc === 'live' ? '' : T.cls(value)) + '">' + T.money(value, sc !== 'live') + '</span><small>' + list.length + ' trades' + (sc === 'live' ? ' · balance' : ' · net P&amp;L') + '</small></div></div>' +
+      '<div class="hero-r"><span class="small">' + esc(upd) + '</span>' +
+      '<button class="rbtn go" type="button" id="hRefresh" aria-label="Refresh data" title="Refresh">' + T.icon('refresh') + '</button>' +
+      '<button class="rbtn" type="button" id="hMore" aria-label="More actions" title="More">' + T.icon('more') + '</button></div></div>' +
+      '<div class="tabs itabs" role="tablist">' + ITABS.map(function (t) {
+        return '<a class="tab" role="tab" href="#' + t[0] + '" aria-selected="' + (view === t[0]) + '">' + T.icon(t[2]) + '<span>' + t[1] + '</span></a>';
+      }).join('') + '</div><div class="mob-scope">' + T.scopeSwitch(true) + '</div></div>';
+  };
+  T.bindInsightHead = function (el) {
+    var r = $('#hRefresh', el);
+    if (r) r.onclick = function () {
+      r.classList.add('spin');
+      T.load().then(function () { T.renderShell(); T.render(); T.toast('Up to date'); }).catch(function (e) { r.classList.remove('spin'); T.toast(e.message, true); });
+    };
+    var mo = $('#hMore', el);
+    if (mo) mo.onclick = function () {
+      T.menu(mo, [
+        { l: 'New trade', icon: 'plus', fn: function () { T.openTrade(null); } },
+        { l: 'Export trades (CSV)', icon: 'download', href: '/api/app?action=export', dl: true },
+        { l: 'Import trades', icon: 'upload', href: '#trades' },
+        { sep: true },
+        { l: 'MT5 sync and settings', icon: 'settings', href: '#settings' }
+      ]);
+    };
+    T.bindScope(el);
+  };
+
+  // Ring chart. parts: [{v, color, label}]
+  T.donut = function (parts, center, sub) {
+    var tot = parts.reduce(function (s, p) { return s + Math.max(0, p.v); }, 0), r = 52, C = 2 * Math.PI * r, off = 0;
+    var rings = tot ? parts.filter(function (p) { return p.v > 0; }).map(function (p) {
+      var len = p.v / tot * C, seg = '<circle cx="70" cy="70" r="' + r + '" fill="none" stroke="' + p.color + '" stroke-width="16" stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + '" stroke-dashoffset="' + (-off).toFixed(2) + '" transform="rotate(-90 70 70)"/>';
+      off += len; return seg;
+    }).join('') : '';
+    return '<svg class="donut" viewBox="0 0 140 140" role="img" aria-label="' + esc(parts.map(function (p) { return p.label + ' ' + p.v; }).join(', ')) + '">' +
+      '<circle cx="70" cy="70" r="' + r + '" fill="none" stroke="var(--line)" stroke-width="16"/>' + rings +
+      (center ? '<text x="70" y="' + (sub ? 70 : 76) + '" text-anchor="middle" class="dc">' + esc(center) + '</text>' : '') +
+      (sub ? '<text x="70" y="88" text-anchor="middle" class="ds">' + esc(sub) + '</text>' : '') + '</svg>';
   };
 
   function openMore() {
@@ -512,13 +639,13 @@
     return '<div class="kpi"><span class="label">' + label + '</span><span class="v ' + (cls || '') + '">' + value + '</span>' + (sub ? '<span class="s">' + sub + '</span>' : '') + '</div>';
   };
 
-  T.scopeSwitch = function () {
-    return '<div class="segtabs no-print" role="group" aria-label="Account">' + [['live', 'Live'], ['demo', 'Demo'], ['backtest', 'Backtest'], ['all', 'All']].map(function (o) {
+  T.scopeSwitch = function (mob) {
+    return '<div class="segtabs no-print' + (mob === false ? '' : ' mob-only') + '" role="group" aria-label="Account">' + [['live', 'Live'], ['demo', 'Demo'], ['backtest', 'Backtest'], ['all', 'All']].map(function (o) {
       return '<button type="button" data-scope="' + o[0] + '" aria-pressed="' + (S.scope === o[0]) + '">' + o[1] + '</button>';
     }).join('') + '</div>';
   };
   T.bindScope = function (el) {
-    T.$$('[data-scope]', el).forEach(function (b) { b.onclick = function () { S.scope = b.dataset.scope; store('tj-scope', S.scope); T.render(); }; });
+    T.$$('[data-scope]', el).forEach(function (b) { b.onclick = function () { T.setScope(b.dataset.scope); }; });
   };
 
   // ---------- inbox popups ----------
